@@ -365,9 +365,13 @@ async function listOneSheetAppsScript(config, sheetIndex) {
 }
 
 async function listOneSheet(sheets, config, sheetIndex, source = "google_sheets_api") {
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId: config.spreadsheetId, range: config.sheetName });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId: config.spreadsheetId, range: sheetRange(config.sheetName) });
   const rows = response.data.values || [];
   return rowsToLeads(rows, config, sheetIndex, source);
+}
+
+function sheetRange(sheetName) {
+  return `'${String(sheetName || "Sheet1").replace(/'/g, "''")}'`;
 }
 
 async function listOneSheetPublicCsv(config, sheetIndex) {
