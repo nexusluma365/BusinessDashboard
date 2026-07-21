@@ -1,7 +1,12 @@
 import http from "node:http";
+import crypto from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { google } from "googleapis";
 
 const port = Number(process.env.PORT || 8080);
+const dataDir = process.env.DATA_DIR || "/tmp/syrus-data";
+const webhookLeadsFile = path.join(dataDir, "webhook-leads.json");
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
   "Access-Control-Allow-Origin": process.env.CORS_ORIGIN || "*",
@@ -25,7 +30,7 @@ const headerAliases = {
   submittedAt: ["submitted at", "submission date", "date", "created", "timestamp"],
   paymentAmount: ["payment amount", "amount", "price", "order total"],
   paymentStatus: ["payment status", "order status"],
-  status: ["status", "lead status", "pipeline status"],
+  status: ["status", "lead status", "pipeline status", "current status"],
   notes: ["notes", "note", "internal notes"],
 };
 const purchasedAliases = ["purchased", "customer", "has purchased", "paid"];
@@ -47,6 +52,7 @@ http
       if (req.method === "POST" && url.pathname === "/api/syrus/ask") return send(res, 200, await askSyrus(await readBody(req)));
       if (req.method === "POST" && url.pathname === "/api/lead-assistant/reply") return send(res, 200, await replyToLead(await readBody(req)));
       if (req.method === "POST" && url.pathname === "/api/email/send") return send(res, 200, await sendEmail(await readBody(req)));
+      if (req.method === "POST" && url.pathname === "/api/leads/ingest") return send(res, 200, await ingestLead(req, await readBody(req)));
 
       return send(res, 404, { error: "Not found" });
     } catch (error) {
@@ -65,8 +71,9 @@ function googleStatus() {
 }
 
 async function listLeads() {
+  const webhookLeads = await readWebhookLeads();
   if (!googleStatus().connected) {
-    return { source: "not_configured", leads: [], columnsMissing: [] };
+    return { source: webhookLeads.length ? "webhook" : "not_configured", leads: webhookLeads, columnsMissing: [] };
   }
 
   const auth = google.auth.fromJSON(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
@@ -87,10 +94,108 @@ async function listLeads() {
         ]
       : []
   );
-  const leads = fulfilled.flatMap((result) => result.leads);
+  const sheetLeads = fulfilled.flatMap((result) => result.leads);
+  const leads = mergeLeads([...webhookLeads, ...sheetLeads]);
   const columnsFound = Array.from(new Set(fulfilled.flatMap((result) => result.columnsFound)));
   const columnsMissing = Object.keys(headerAliases).filter((key) => !columnsFound.includes(key));
-  return { source: "google_sheets", leads, columnsFound, columnsMissing, sheetErrors };
+  return { source: webhookLeads.length ? "webhook_google_sheets" : "google_sheets", leads, columnsFound, columnsMissing, sheetErrors };
+}
+
+async function ingestLead(req, body) {
+  const expectedToken = process.env.LEAD_INGEST_TOKEN;
+  const providedToken = req.headers["x-syrus-ingest-token"] || body.ingestToken;
+  if (expectedToken && providedToken !== expectedToken) {
+    return { success: false, error: "Unauthorized lead ingest request." };
+  }
+  if (!expectedToken && process.env.NODE_ENV === "production") {
+    return { success: false, error: "Lead ingest token is Not Available yet. Set LEAD_INGEST_TOKEN in Railway." };
+  }
+
+  const incoming = Array.isArray(body.leads) ? body.leads : [body.lead || body.row || body];
+  const leads = incoming.map((item, index) => mapWebhookLead(item, body, index)).filter((lead) => lead.email || lead.phone || lead.fullName);
+  if (!leads.length) return { success: false, error: "No usable lead data was received." };
+
+  const saved = mergeLeads([...(await readWebhookLeads()), ...leads]);
+  await writeWebhookLeads(saved);
+  return { success: true, received: leads.length, stored: saved.length };
+}
+
+function mapWebhookLead(item, body, index) {
+  const source = item && typeof item === "object" ? item : {};
+  const raw = source.raw && typeof source.raw === "object" ? source.raw : source;
+  const headerRow = Object.keys(raw);
+  const row = headerRow.map((header) => raw[header]);
+  const columnIndex = buildColumnIndex(headerRow);
+  const config = {
+    offer: source.offer || body.offer || "Not Available yet",
+    spreadsheetId: source.spreadsheetId || body.spreadsheetId || "",
+    sheetName: source.sheetName || body.sheetName || "",
+  };
+  const lead = mapLead(headerRow, row, columnIndex, index, config, 900 + index);
+  const fallbackName = String(source.name || source.fullName || rawValue(raw, ["name", "full name", "customer name", "lead name"])).trim();
+  const [fallbackFirst, ...fallbackLast] = fallbackName.split(/\s+/);
+  return {
+    ...lead,
+    id: stableLeadId(source, lead),
+    rowNumber: Number(source.rowNumber || source.sourceRowNumber || Date.now() + index),
+    sourceRowNumber: Number(source.sourceRowNumber || source.rowNumber || 0),
+    firstName: source.firstName || lead.firstName || fallbackFirst || "",
+    lastName: source.lastName || lead.lastName || fallbackLast.join(" "),
+    fullName: source.fullName || lead.fullName || fallbackName || [source.firstName || lead.firstName || fallbackFirst, source.lastName || lead.lastName || fallbackLast.join(" ")].filter(Boolean).join(" "),
+    email: source.email || lead.email || rawValue(raw, ["email", "email address"]) || "",
+    phone: source.phone || lead.phone || rawValue(raw, ["phone", "phone number", "mobile"]) || "",
+    businessName: source.businessName || lead.businessName || "",
+    website: source.website || lead.website || rawValue(raw, ["website", "site", "url", "page url"]) || "",
+    offer: source.offer || lead.offer || body.offer || "Not Available yet",
+    product: source.product || lead.product || "",
+    source: source.source || lead.source || "Google Apps Script",
+    campaign: source.campaign || lead.campaign || "",
+    utmSource: source.utmSource || lead.utmSource || "",
+    utmMedium: source.utmMedium || lead.utmMedium || "",
+    submittedAt: source.submittedAt || source.createdAt || lead.submittedAt || new Date().toISOString(),
+    purchased: Boolean(source.purchased) || lead.purchased,
+    paymentAmount: source.paymentAmount || lead.paymentAmount || "",
+    paymentStatus: source.paymentStatus || lead.paymentStatus || "",
+    status: source.status || lead.status || source.currentStatus || rawValue(raw, ["current status", "status", "lead status"]) || "New",
+    notes: source.notes || lead.notes || "",
+    sheetOffer: source.sheetOffer || body.offer || lead.sheetOffer,
+    sheetName: source.sheetName || body.sheetName || lead.sheetName,
+    spreadsheetId: source.spreadsheetId || body.spreadsheetId || lead.spreadsheetId,
+    raw,
+  };
+}
+
+function rawValue(raw, aliases) {
+  const normalizedAliases = aliases.map(normalizeHeader);
+  const key = Object.keys(raw).find((candidate) => normalizedAliases.includes(normalizeHeader(candidate)));
+  return key ? String(raw[key] || "").trim() : "";
+}
+
+function stableLeadId(source, lead) {
+  const key = [source.id, source.sessionId, lead.email, lead.phone, lead.submittedAt, lead.offer].filter(Boolean).join("|");
+  return crypto.createHash("sha256").update(key || JSON.stringify(source)).digest("hex").slice(0, 16);
+}
+
+function mergeLeads(leads) {
+  const merged = new Map();
+  for (const lead of leads) {
+    const key = lead.id || stableLeadId(lead.raw || {}, lead);
+    merged.set(key, { ...lead, id: key });
+  }
+  return Array.from(merged.values()).sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
+}
+
+async function readWebhookLeads() {
+  try {
+    return JSON.parse(await readFile(webhookLeadsFile, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+async function writeWebhookLeads(leads) {
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(webhookLeadsFile, JSON.stringify(leads.slice(-5000), null, 2));
 }
 
 async function listOneSheet(sheets, config, sheetIndex) {
