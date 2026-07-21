@@ -138,7 +138,8 @@ ipcMain.handle("leads:list", async () => {
   const { connected } = await googleAccountStatus();
   const settings = readSettings();
 
-  if (!connected || !settings.googleSpreadsheetId) {
+  const hasLeadSheets = Boolean(settings.googleSpreadsheetId || settings.googleLeadSheets?.some((sheet) => sheet.spreadsheetId.trim()));
+  if (!connected || !hasLeadSheets) {
     return { source: "not_configured" as const, leads: [], columnsMissing: [] };
   }
 

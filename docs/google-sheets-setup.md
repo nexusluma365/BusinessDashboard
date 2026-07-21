@@ -32,8 +32,9 @@ allows any loopback port automatically.
 2. Click **Connect Google Account** → your system browser opens Google's
    consent screen → approve access → the tab confirms "connected" and you
    return to the app.
-3. Paste your spreadsheet's ID (the long string in its URL, between `/d/`
-   and `/edit`) and the tab name (defaults to `Sheet1`) → **Save & sync**.
+3. Paste each spreadsheet ID (the long string in its URL, between `/d/`
+   and `/edit`) for Web Design, Digital Products, and Credit Repair.
+4. Enter each tab name (defaults to `Sheet1`) → **Save all sheets & sync**.
 
 The account must have at least read access to the spreadsheet — if it's
 owned by someone else, have them share it with your Google account first.
@@ -73,9 +74,17 @@ If a column your sheet has isn't recognized, it's still preserved in the
 lead's raw data — it just won't show up as a dedicated field yet. Tell me
 your actual header names and I'll extend the mapping.
 
-## 4. Multiple offers / multiple tabs
+## 4. Three offer spreadsheets
 
-Right now the app reads one tab. If your leads are split across tabs (one
-per offer), the simplest fix on your end is a summary tab that pulls from
-the others with `IMPORTRANGE`/`QUERY`, or tell me and I'll add multi-tab
-support so the app reads and merges several tabs itself.
+SYRUS reads and merges three offer sheets:
+
+- Web Design
+- Digital Products
+- Credit Repair
+
+If an individual sheet does not include an `Offer` column, SYRUS labels the
+rows using the offer assigned to that spreadsheet. If a sheet does include
+an `Offer` column, that row value is used.
+
+On Railway, use either the separate per-offer env vars or
+`GOOGLE_LEAD_SHEETS_JSON` as documented in the README.

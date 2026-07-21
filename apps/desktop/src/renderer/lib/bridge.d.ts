@@ -21,6 +21,10 @@ export type SheetLead = {
   paymentStatus: string;
   status: string;
   notes: string;
+  sheetOffer: string;
+  sheetName: string;
+  spreadsheetId: string;
+  sourceRowNumber: number;
   raw: Record<string, string>;
 };
 
@@ -34,7 +38,14 @@ export type LeadsResult = {
 export type AppSettings = {
   googleSpreadsheetId?: string;
   googleSheetName?: string;
+  googleLeadSheets?: LeadSheetConfig[];
   aiProvider?: "anthropic" | "openai";
+};
+
+export type LeadSheetConfig = {
+  offer: "Web Design" | "Digital Products" | "Credit Repair";
+  spreadsheetId: string;
+  sheetName?: string;
 };
 
 declare global {

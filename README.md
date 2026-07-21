@@ -34,8 +34,22 @@ Required Railway variables for live data:
 
 ```text
 GOOGLE_SERVICE_ACCOUNT_JSON=
-GOOGLE_SPREADSHEET_ID=
-GOOGLE_SHEET_NAME=Sheet1
+GOOGLE_WEB_DESIGN_SPREADSHEET_ID=
+GOOGLE_WEB_DESIGN_SHEET_NAME=Sheet1
+GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_ID=
+GOOGLE_DIGITAL_PRODUCTS_SHEET_NAME=Sheet1
+GOOGLE_CREDIT_REPAIR_SPREADSHEET_ID=
+GOOGLE_CREDIT_REPAIR_SHEET_NAME=Sheet1
+```
+
+Each spreadsheet is merged into one lead list. If a sheet does not have an
+`Offer` column, SYRUS automatically labels rows from that sheet as `Web Design`,
+`Digital Products`, or `Credit Repair`.
+
+You can also use one JSON env var instead:
+
+```text
+GOOGLE_LEAD_SHEETS_JSON=[{"offer":"Web Design","spreadsheetId":"...","sheetName":"Sheet1"},{"offer":"Digital Products","spreadsheetId":"...","sheetName":"Sheet1"},{"offer":"Credit Repair","spreadsheetId":"...","sheetName":"Sheet1"}]
 ```
 
 Required Railway variables for Gmail sending:

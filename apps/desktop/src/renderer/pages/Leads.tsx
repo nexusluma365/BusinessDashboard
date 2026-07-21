@@ -1,14 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, RefreshCw, Link2, CheckCircle2, Circle, ExternalLink } from "lucide-react";
 import Header from "@/components/Header";
+import type { LeadSheetConfig } from "@/lib/bridge";
+
+const defaultLeadSheets: LeadSheetConfig[] = [
+  { offer: "Web Design", spreadsheetId: "", sheetName: "Sheet1" },
+  { offer: "Digital Products", spreadsheetId: "", sheetName: "Sheet1" },
+  { offer: "Credit Repair", spreadsheetId: "", sheetName: "Sheet1" },
+];
 
 export default function Leads() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [offerFilter, setOfferFilter] = useState<string>("All");
-  const [spreadsheetIdInput, setSpreadsheetIdInput] = useState("");
-  const [sheetNameInput, setSheetNameInput] = useState("Sheet1");
+  const [leadSheetsInput, setLeadSheetsInput] = useState<LeadSheetConfig[]>(defaultLeadSheets);
 
   const googleStatus = useQuery({
     queryKey: ["google-status"],
@@ -19,6 +25,19 @@ export default function Leads() {
     queryKey: ["settings"],
     queryFn: () => window.nexusLuma.settings.get(),
   });
+
+  useEffect(() => {
+    if (!settings.data) return;
+    if (settings.data.googleLeadSheets?.length) {
+      setLeadSheetsInput(mergeLeadSheets(settings.data.googleLeadSheets));
+      return;
+    }
+    if (settings.data.googleSpreadsheetId) {
+      setLeadSheetsInput(
+        mergeLeadSheets([{ offer: "Web Design", spreadsheetId: settings.data.googleSpreadsheetId, sheetName: settings.data.googleSheetName || "Sheet1" }])
+      );
+    }
+  }, [settings.data]);
 
   const leadsQuery = useQuery({
     queryKey: ["leads"],
@@ -51,15 +70,23 @@ export default function Leads() {
 
   async function saveSpreadsheet() {
     await window.nexusLuma.settings.set({
-      googleSpreadsheetId: spreadsheetIdInput.trim(),
-      googleSheetName: sheetNameInput.trim() || "Sheet1",
+      googleLeadSheets: leadSheetsInput.map((sheet) => ({
+        offer: sheet.offer,
+        spreadsheetId: sheet.spreadsheetId.trim(),
+        sheetName: sheet.sheetName?.trim() || "Sheet1",
+      })),
     });
     queryClient.invalidateQueries({ queryKey: ["settings"] });
     queryClient.invalidateQueries({ queryKey: ["leads"] });
   }
 
+  const configuredLeadSheets = settings.data?.googleLeadSheets?.length
+    ? settings.data.googleLeadSheets
+    : settings.data?.googleSpreadsheetId
+      ? [{ offer: "Web Design" as const, spreadsheetId: settings.data.googleSpreadsheetId, sheetName: settings.data.googleSheetName || "Sheet1" }]
+      : [];
   const needsSetup =
-    googleStatus.data && (!googleStatus.data.connected || !settings.data?.googleSpreadsheetId);
+    googleStatus.data && (!googleStatus.data.connected || configuredLeadSheets.length < defaultLeadSheets.length);
 
   const summaryCards = [
     { label: "New leads", value: leads.filter((l) => /new/i.test(l.status)).length, color: "bg-[#7898ef]" },
@@ -122,29 +149,33 @@ export default function Leads() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-3 items-end">
-                <div>
-                  <label className="text-xs text-text-muted">Spreadsheet ID</label>
-                  <input
-                    value={spreadsheetIdInput}
-                    onChange={(e) => setSpreadsheetIdInput(e.target.value)}
-                    placeholder="from the sheet's URL"
-                    className="w-full mt-1 bg-bg-panel border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent-gold"
-                  />
+              <div className="space-y-3">
+                <div className="grid grid-cols-[150px_1fr_140px] gap-3 text-xs text-text-muted">
+                  <span>Offer</span>
+                  <span>Spreadsheet ID</span>
+                  <span>Tab name</span>
                 </div>
-                <div>
-                  <label className="text-xs text-text-muted">Tab name</label>
-                  <input
-                    value={sheetNameInput}
-                    onChange={(e) => setSheetNameInput(e.target.value)}
-                    className="w-full mt-1 bg-bg-panel border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent-gold"
-                  />
-                </div>
+                {leadSheetsInput.map((sheet, index) => (
+                  <div key={sheet.offer} className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr_140px] sm:items-center">
+                    <div className="text-sm font-medium">{sheet.offer}</div>
+                    <input
+                      value={sheet.spreadsheetId}
+                      onChange={(e) => updateLeadSheetInput(index, { spreadsheetId: e.target.value })}
+                      placeholder="from the sheet's URL"
+                      className="w-full bg-bg-panel border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent-gold"
+                    />
+                    <input
+                      value={sheet.sheetName || "Sheet1"}
+                      onChange={(e) => updateLeadSheetInput(index, { sheetName: e.target.value })}
+                      className="w-full bg-bg-panel border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent-gold"
+                    />
+                  </div>
+                ))}
                 <button
                   onClick={saveSpreadsheet}
                   className="bg-accent-gold text-bg-primary text-sm font-medium rounded-lg px-4 py-2 hover:brightness-110 transition"
                 >
-                  Save & sync
+                  Save all sheets & sync
                 </button>
               </div>
             )}
@@ -248,17 +279,33 @@ export default function Leads() {
           </table>
         </div>
 
-        {leadsQuery.data?.source === "google_sheets" && settings.data?.googleSpreadsheetId && (
-          <a
-            href={`https://docs.google.com/spreadsheets/d/${settings.data.googleSpreadsheetId}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold transition-colors"
-          >
-            <ExternalLink size={12} /> Open source sheet
-          </a>
+        {leadsQuery.data?.source === "google_sheets" && configuredLeadSheets.length > 0 && (
+          <div className="flex flex-wrap gap-3">
+            {configuredLeadSheets.map((sheet) => (
+              <a
+                key={`${sheet.offer}-${sheet.spreadsheetId}`}
+                href={`https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-gold transition-colors"
+              >
+                <ExternalLink size={12} /> Open {sheet.offer}
+              </a>
+            ))}
+          </div>
         )}
       </div>
     </div>
   );
+
+  function updateLeadSheetInput(index: number, patch: Partial<LeadSheetConfig>) {
+    setLeadSheetsInput((current) => current.map((sheet, itemIndex) => (itemIndex === index ? { ...sheet, ...patch } : sheet)));
+  }
+}
+
+function mergeLeadSheets(saved: LeadSheetConfig[]) {
+  return defaultLeadSheets.map((sheet) => ({
+    ...sheet,
+    ...(saved.find((item) => item.offer === sheet.offer) ?? {}),
+  }));
 }

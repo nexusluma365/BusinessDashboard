@@ -25,7 +25,14 @@ function tokenPath() {
 export type AppSettings = {
   googleSpreadsheetId?: string;
   googleSheetName?: string; // tab/sheet name, e.g. "Leads"
+  googleLeadSheets?: LeadSheetConfig[];
   aiProvider?: "anthropic" | "openai";
+};
+
+export type LeadSheetConfig = {
+  offer: "Web Design" | "Digital Products" | "Credit Repair";
+  spreadsheetId: string;
+  sheetName?: string;
 };
 
 export function readSettings(): AppSettings {

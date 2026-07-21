@@ -59,8 +59,8 @@ http
 
 function googleStatus() {
   return {
-    configured: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && process.env.GOOGLE_SPREADSHEET_ID),
-    connected: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && process.env.GOOGLE_SPREADSHEET_ID),
+    configured: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && leadSheetConfigs().length),
+    connected: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && leadSheetConfigs().length),
   };
 }
 
@@ -72,21 +72,27 @@ async function listLeads() {
   const auth = google.auth.fromJSON(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
   auth.scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"];
   const sheets = google.sheets({ version: "v4", auth });
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-  const range = process.env.GOOGLE_SHEET_NAME || "Sheet1";
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+  const configs = leadSheetConfigs();
+  const results = await Promise.all(configs.map((config, index) => listOneSheet(sheets, config, index)));
+  const leads = results.flatMap((result) => result.leads);
+  const columnsFound = Array.from(new Set(results.flatMap((result) => result.columnsFound)));
+  const columnsMissing = Object.keys(headerAliases).filter((key) => !columnsFound.includes(key));
+  return { source: "google_sheets", leads, columnsFound, columnsMissing };
+}
+
+async function listOneSheet(sheets, config, sheetIndex) {
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId: config.spreadsheetId, range: config.sheetName });
   const rows = response.data.values || [];
-  if (!rows.length) return { source: "google_sheets", leads: [], columnsFound: [], columnsMissing: Object.keys(headerAliases) };
+  if (!rows.length) return { leads: [], columnsFound: [] };
 
   const [headerRow, ...dataRows] = rows;
   const columnIndex = buildColumnIndex(headerRow);
   const leads = dataRows
     .filter((row) => row.some((value) => String(value || "").trim()))
-    .map((row, index) => mapLead(headerRow, row, columnIndex, index));
+    .map((row, index) => mapLead(headerRow, row, columnIndex, index, config, sheetIndex));
 
   const columnsFound = Object.keys(columnIndex);
-  const columnsMissing = Object.keys(headerAliases).filter((key) => !columnsFound.includes(key));
-  return { source: "google_sheets", leads, columnsFound, columnsMissing };
+  return { leads, columnsFound };
 }
 
 function buildColumnIndex(headerRow) {
@@ -101,7 +107,7 @@ function buildColumnIndex(headerRow) {
   return index;
 }
 
-function mapLead(headerRow, row, columnIndex, index) {
+function mapLead(headerRow, row, columnIndex, index, config, sheetIndex) {
   const raw = {};
   headerRow.forEach((header, cellIndex) => {
     raw[header] = cell(row, cellIndex);
@@ -110,8 +116,10 @@ function mapLead(headerRow, row, columnIndex, index) {
   const lastName = cell(row, columnIndex.lastName);
   const paymentStatus = cell(row, columnIndex.paymentStatus).toLowerCase();
   const purchasedRaw = cell(row, columnIndex.purchased).toLowerCase();
+  const sourceRowNumber = index + 2;
   return {
-    rowNumber: index + 2,
+    rowNumber: sheetIndex * 100_000 + sourceRowNumber,
+    sourceRowNumber,
     firstName,
     lastName,
     fullName: [firstName, lastName].filter(Boolean).join(" "),
@@ -119,7 +127,7 @@ function mapLead(headerRow, row, columnIndex, index) {
     phone: cell(row, columnIndex.phone),
     businessName: cell(row, columnIndex.businessName),
     website: cell(row, columnIndex.website),
-    offer: cell(row, columnIndex.offer),
+    offer: cell(row, columnIndex.offer) || config.offer,
     product: cell(row, columnIndex.product),
     source: cell(row, columnIndex.source),
     campaign: cell(row, columnIndex.campaign),
@@ -131,8 +139,38 @@ function mapLead(headerRow, row, columnIndex, index) {
     paymentStatus: cell(row, columnIndex.paymentStatus),
     status: cell(row, columnIndex.status),
     notes: cell(row, columnIndex.notes),
+    sheetOffer: config.offer,
+    sheetName: config.sheetName,
+    spreadsheetId: config.spreadsheetId,
     raw,
   };
+}
+
+function leadSheetConfigs() {
+  if (process.env.GOOGLE_LEAD_SHEETS_JSON) {
+    return JSON.parse(process.env.GOOGLE_LEAD_SHEETS_JSON)
+      .filter((sheet) => sheet.spreadsheetId)
+      .map((sheet) => ({
+        offer: sheet.offer,
+        spreadsheetId: String(sheet.spreadsheetId).trim(),
+        sheetName: String(sheet.sheetName || "Sheet1").trim(),
+      }));
+  }
+
+  const configs = [
+    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_WEB_DESIGN_SPREADSHEET_ID, sheetName: process.env.GOOGLE_WEB_DESIGN_SHEET_NAME },
+    { offer: "Digital Products", spreadsheetId: process.env.GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_ID, sheetName: process.env.GOOGLE_DIGITAL_PRODUCTS_SHEET_NAME },
+    { offer: "Credit Repair", spreadsheetId: process.env.GOOGLE_CREDIT_REPAIR_SPREADSHEET_ID, sheetName: process.env.GOOGLE_CREDIT_REPAIR_SHEET_NAME },
+    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID, sheetName: process.env.GOOGLE_SHEET_NAME },
+  ];
+
+  return configs
+    .filter((sheet) => sheet.spreadsheetId)
+    .map((sheet) => ({
+      offer: sheet.offer,
+      spreadsheetId: String(sheet.spreadsheetId).trim(),
+      sheetName: String(sheet.sheetName || "Sheet1").trim(),
+    }));
 }
 
 async function liveUpdates() {

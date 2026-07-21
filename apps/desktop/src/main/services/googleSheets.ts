@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { getAuthorizedClient } from "./googleAuth";
-import { readSettings } from "./localStore";
+import { readSettings, type LeadSheetConfig } from "./localStore";
 
 export type SheetLead = {
   rowNumber: number;
@@ -23,6 +23,10 @@ export type SheetLead = {
   paymentStatus: string;
   status: string;
   notes: string;
+  sheetOffer: string;
+  sheetName: string;
+  spreadsheetId: string;
+  sourceRowNumber: number;
   raw: Record<string, string>;
 };
 
@@ -32,7 +36,7 @@ export type SheetLead = {
  * "FirstName" all resolve the same way. Users don't need to rename their
  * existing columns to match this app.
  */
-const HEADER_ALIASES: Record<keyof Omit<SheetLead, "rowNumber" | "fullName" | "purchased" | "raw">, string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<SheetLead, "rowNumber" | "fullName" | "purchased" | "raw" | "sheetOffer" | "sheetName" | "spreadsheetId" | "sourceRowNumber">, string[]> = {
   firstName: ["first name", "firstname", "first"],
   lastName: ["last name", "lastname", "last"],
   email: ["email", "email address"],
@@ -89,18 +93,32 @@ export async function fetchLeadsFromSheet(): Promise<{
   if (!client) throw new Error("Google account not connected.");
 
   const settings = readSettings();
-  if (!settings.googleSpreadsheetId) throw new Error("No spreadsheet configured yet.");
+  const configuredSheets = normalizeLeadSheets(settings.googleLeadSheets, settings.googleSpreadsheetId, settings.googleSheetName);
+  if (!configuredSheets.length) throw new Error("No lead spreadsheets configured yet.");
 
   const sheets = google.sheets({ version: "v4", auth: client });
-  const range = `${settings.googleSheetName ?? "Sheet1"}`;
 
+  const results = await Promise.all(configuredSheets.map((sheet, sheetIndex) => fetchOneSheet(sheets, sheet, sheetIndex)));
+  const leads = results.flatMap((result) => result.leads);
+  const columnsFound = Array.from(new Set(results.flatMap((result) => result.columnsFound)));
+  const columnsMissing = Object.keys(HEADER_ALIASES).filter((k) => !columnsFound.includes(k));
+
+  return { source: "google_sheets", leads, columnsFound, columnsMissing };
+}
+
+async function fetchOneSheet(
+  sheets: ReturnType<typeof google.sheets>,
+  config: LeadSheetConfig,
+  sheetIndex: number
+) {
+  const range = `${config.sheetName || "Sheet1"}`;
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: settings.googleSpreadsheetId,
+    spreadsheetId: config.spreadsheetId,
     range,
   });
 
   const rows = res.data.values ?? [];
-  if (rows.length === 0) return { source: "google_sheets", leads: [], columnsFound: [], columnsMissing: Object.keys(HEADER_ALIASES) };
+  if (rows.length === 0) return { leads: [] as SheetLead[], columnsFound: [] };
 
   const [headerRow, ...dataRows] = rows;
   const columnIndex = buildColumnIndex(headerRow as string[]);
@@ -108,6 +126,7 @@ export async function fetchLeadsFromSheet(): Promise<{
   const leads: SheetLead[] = dataRows
     .filter((row) => row.some((v) => String(v ?? "").trim() !== ""))
     .map((row, i) => {
+      const sourceRowNumber = i + 2;
       const raw: Record<string, string> = {};
       (headerRow as string[]).forEach((h, idx) => (raw[h] = cell(row as string[], idx)));
 
@@ -115,9 +134,11 @@ export async function fetchLeadsFromSheet(): Promise<{
       const lastName = cell(row as string[], columnIndex.lastName);
       const purchasedRaw = cell(row as string[], columnIndex.purchased).toLowerCase();
       const paymentStatus = cell(row as string[], columnIndex.paymentStatus).toLowerCase();
+      const offer = cell(row as string[], columnIndex.offer) || config.offer;
 
       return {
-        rowNumber: i + 2, // +1 for header, +1 for 1-indexing
+        rowNumber: sheetIndex * 100_000 + sourceRowNumber,
+        sourceRowNumber,
         firstName,
         lastName,
         fullName: [firstName, lastName].filter(Boolean).join(" "),
@@ -125,7 +146,7 @@ export async function fetchLeadsFromSheet(): Promise<{
         phone: cell(row as string[], columnIndex.phone),
         businessName: cell(row as string[], columnIndex.businessName),
         website: cell(row as string[], columnIndex.website),
-        offer: cell(row as string[], columnIndex.offer),
+        offer,
         product: cell(row as string[], columnIndex.product),
         source: cell(row as string[], columnIndex.source),
         campaign: cell(row as string[], columnIndex.campaign),
@@ -137,12 +158,30 @@ export async function fetchLeadsFromSheet(): Promise<{
         paymentStatus: cell(row as string[], columnIndex.paymentStatus),
         status: cell(row as string[], columnIndex.status),
         notes: cell(row as string[], columnIndex.notes),
+        sheetOffer: config.offer,
+        sheetName: config.sheetName || "Sheet1",
+        spreadsheetId: config.spreadsheetId,
         raw,
       };
     });
 
-  const columnsFound = Object.keys(columnIndex);
-  const columnsMissing = Object.keys(HEADER_ALIASES).filter((k) => !columnsFound.includes(k));
+  return { leads, columnsFound: Object.keys(columnIndex) };
+}
 
-  return { source: "google_sheets", leads, columnsFound, columnsMissing };
+export function normalizeLeadSheets(
+  googleLeadSheets: LeadSheetConfig[] | undefined,
+  legacySpreadsheetId?: string,
+  legacySheetName?: string
+) {
+  const configured = (googleLeadSheets ?? []).filter((sheet) => sheet.spreadsheetId.trim());
+  if (configured.length) {
+    return configured.map((sheet) => ({
+      ...sheet,
+      spreadsheetId: sheet.spreadsheetId.trim(),
+      sheetName: sheet.sheetName?.trim() || "Sheet1",
+    }));
+  }
+  return legacySpreadsheetId?.trim()
+    ? [{ offer: "Web Design" as const, spreadsheetId: legacySpreadsheetId.trim(), sheetName: legacySheetName?.trim() || "Sheet1" }]
+    : [];
 }
