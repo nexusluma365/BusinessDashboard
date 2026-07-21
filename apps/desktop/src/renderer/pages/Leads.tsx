@@ -182,6 +182,21 @@ export default function Leads() {
           </div>
         )}
 
+        {Boolean(leadsQuery.data?.sheetErrors?.length) && (
+          <div className="panel border-status-warning/40 p-5">
+            <div className="text-sm font-medium text-status-warning">Some lead sheets need attention</div>
+            <div className="mt-3 space-y-2">
+              {leadsQuery.data?.sheetErrors?.map((sheet) => (
+                <div key={`${sheet.offer}-${sheet.spreadsheetId}-${sheet.sheetName}`} className="rounded-card border border-border bg-bg-panel px-3 py-2 text-xs text-text-secondary">
+                  <span className="font-medium text-text-primary">{sheet.offer}</span>
+                  <span className="text-text-muted"> · {sheet.sheetName}</span>
+                  <div className="mt-1 break-words">{sheet.error}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 premium-input rounded-card px-4 h-12 w-64">
             <Search size={14} className="text-text-muted" />

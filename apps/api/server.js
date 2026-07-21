@@ -73,11 +73,24 @@ async function listLeads() {
   auth.scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"];
   const sheets = google.sheets({ version: "v4", auth });
   const configs = leadSheetConfigs();
-  const results = await Promise.all(configs.map((config, index) => listOneSheet(sheets, config, index)));
-  const leads = results.flatMap((result) => result.leads);
-  const columnsFound = Array.from(new Set(results.flatMap((result) => result.columnsFound)));
+  const results = await Promise.allSettled(configs.map((config, index) => listOneSheet(sheets, config, index)));
+  const fulfilled = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+  const sheetErrors = results.flatMap((result, index) =>
+    result.status === "rejected"
+      ? [
+          {
+            offer: configs[index].offer,
+            spreadsheetId: configs[index].spreadsheetId,
+            sheetName: configs[index].sheetName,
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          },
+        ]
+      : []
+  );
+  const leads = fulfilled.flatMap((result) => result.leads);
+  const columnsFound = Array.from(new Set(fulfilled.flatMap((result) => result.columnsFound)));
   const columnsMissing = Object.keys(headerAliases).filter((key) => !columnsFound.includes(key));
-  return { source: "google_sheets", leads, columnsFound, columnsMissing };
+  return { source: "google_sheets", leads, columnsFound, columnsMissing, sheetErrors };
 }
 
 async function listOneSheet(sheets, config, sheetIndex) {

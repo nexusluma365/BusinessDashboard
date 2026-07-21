@@ -32,6 +32,7 @@ export type LeadsResult = {
   source: "google_sheets" | "not_configured" | "error";
   leads: SheetLead[];
   columnsMissing?: string[];
+  sheetErrors?: Array<{ offer: string; spreadsheetId: string; sheetName: string; error: string }>;
   error?: string;
 };
 
