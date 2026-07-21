@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.env
+.env.local
+*.log
+.DS_Store
+.turbo/
+coverage/
+*.db
+*.sqlite
+*.tsbuildinfo
+apps/desktop/dist/
+apps/desktop/dist-electron/
+apps/desktop/release/

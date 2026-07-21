@@ -1,0 +1,73 @@
+{
+  "name": "syrus",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SYRUS desktop command center for Nexus Luma",
+  "author": "Nexus Luma",
+  "main": "dist-electron/main/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && tsc -p electron.tsconfig.json",
+    "electron:dev": "pnpm build && electron .",
+    "typecheck": "tsc -b",
+    "lint": "eslint src --ext .ts,.tsx",
+    "test": "vitest run",
+    "dist:mac": "pnpm build && electron-builder --mac --universal",
+    "dist:win": "pnpm build && electron-builder --win nsis",
+    "dist:all": "pnpm build && electron-builder --mac --universal --win nsis"
+  },
+  "build": {
+    "appId": "com.nexusluma.syrus",
+    "productName": "SYRUS",
+    "files": ["dist/**", "dist-electron/**"],
+    "extraMetadata": {
+      "name": "syrus"
+    },
+    "directories": { "output": "release" },
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon-source.png",
+      "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
+    "@tanstack/react-query": "^5.51.0",
+    "zustand": "^4.5.4",
+    "react-hook-form": "^7.52.2",
+    "zod": "^3.23.8",
+    "recharts": "^2.12.7",
+    "lucide-react": "^0.417.0",
+    "framer-motion": "^11.3.19",
+    "googleapis": "^140.0.1",
+    "google-auth-library": "^9.13.0",
+    "@anthropic-ai/sdk": "^0.27.0",
+    "openai": "^4.55.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3",
+    "electron-updater": "^6.2.1",
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.7",
+    "typescript": "5.5.4",
+    "vite": "^5.3.5",
+    "vitest": "^2.0.5"
+  }
+}

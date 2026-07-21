@@ -1,0 +1,14 @@
+{
+  "name": "syrus-api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Railway backend API for the SYRUS desktop app",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "typecheck": "node --check server.js"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.1"
+  }
+}

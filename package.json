@@ -1,0 +1,24 @@
+{
+  "name": "nexus-luma-command-center",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SYRUS — Nexus Luma desktop command center",
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter syrus dev",
+    "build": "pnpm --filter syrus build",
+    "api:start": "pnpm --filter syrus-api start",
+    "api:typecheck": "pnpm --filter syrus-api typecheck",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "5.5.4",
+    "prettier": "^3.3.3"
+  }
+}

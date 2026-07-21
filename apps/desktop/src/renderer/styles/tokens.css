@@ -1,0 +1,56 @@
+/*
+  Nexus Luma design tokens.
+  Every color/radius/shadow used anywhere in the app must reference one of
+  these variables — no hard-coded hex values in components (Section 2 rule).
+*/
+:root {
+  /* Surfaces */
+  --bg-primary: #f4f7fb;
+  --bg-secondary: #ffffff;
+  --bg-panel: rgba(255, 255, 255, 0.86);
+  --bg-panel-hover: rgba(58, 126, 242, 0.08);
+  --border-default: rgba(46, 73, 112, 0.09);
+  --border-subtle: rgba(46, 73, 112, 0.06);
+
+  /* Text */
+  --text-primary: #172033;
+  --text-secondary: #6f7789;
+  --text-muted: #a8afbd;
+
+  /* Primary accent — premium gold */
+  --accent-gold: #3b7cf4;
+  --accent-gold-muted: rgba(59, 124, 244, 0.14);
+
+  /* Semantic status */
+  --status-info: #3b7cf4;
+  --status-success: #34c98d;
+  --status-warning: #f5a623;
+  --status-error: #ef4a5c;
+  --status-inactive: #6b6a70;
+  --status-takeover: #a855f7;
+  --status-new-lead: #4f8ef7;
+
+  /* Shape */
+  --radius-card: 18px;
+  --radius-pill: 999px;
+
+  /* Depth */
+  --shadow-card: 0 18px 55px rgba(40, 70, 120, 0.09);
+  --shadow-glow-gold: 0 0 0 1px rgba(59, 124, 244, 0.28), 0 18px 48px rgba(59, 124, 244, 0.2);
+}
+
+:root[data-theme="dark"] {
+  --bg-primary: #080b12;
+  --bg-secondary: #101521;
+  --bg-panel: rgba(20, 28, 44, 0.9);
+  --bg-panel-hover: rgba(96, 145, 255, 0.12);
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --text-primary: #f5f7fb;
+  --text-secondary: #a9b1c4;
+  --text-muted: #687288;
+  --accent-gold: #6ea2ff;
+  --accent-gold-muted: rgba(110, 162, 255, 0.18);
+  --shadow-card: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --shadow-glow-gold: 0 0 0 1px rgba(110, 162, 255, 0.26), 0 18px 52px rgba(110, 162, 255, 0.18);
+}
