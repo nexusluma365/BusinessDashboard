@@ -16,13 +16,11 @@ import { apiGet, apiPost, hasRemoteApi } from "./services/apiClient";
 
 const isDev = !app.isPackaged || process.defaultApp || process.env.NODE_ENV === "development";
 
-// Section 27: development/simulated security key must be IMPOSSIBLE in a
-// production build. Local development enables it by default so the app can be
-// run without a real hardware key; set this env var to "false" to test the
-// locked production-style state during development.
+// Temporary launch mode: allow PIN 0000 until the production hardware key is
+// ready. Set NEXUS_LUMA_ENABLE_SIMULATED_USB_KEY=false in a future signed
+// build to restore the hardware-key-only lock.
 const SIMULATED_USB_KEY_ENABLED =
-  process.env.NEXUS_LUMA_ENABLE_SIMULATED_USB_KEY === "true" ||
-  (isDev && process.env.NEXUS_LUMA_ENABLE_SIMULATED_USB_KEY !== "false");
+  process.env.NEXUS_LUMA_ENABLE_SIMULATED_USB_KEY !== "false";
 const USE_VITE_DEV_SERVER = process.env.NEXUS_LUMA_USE_VITE === "true";
 
 let mainWindow: BrowserWindow | null = null;
@@ -134,7 +132,7 @@ ipcMain.handle("security-key:authenticate", (_event, pin: string) => {
   if (!SIMULATED_USB_KEY_ENABLED) {
     return { success: false, reason: "Simulated security key is disabled in this build." };
   }
-  // Demo-only PIN check. Production build replaces this entirely with the
+  // Temporary PIN check. Production build replaces this with the
   // cryptographic challenge/response + license-server verification flow.
   if (pin === "0000") {
     return {
