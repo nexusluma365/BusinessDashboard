@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { readSettings, writeSettings } from "./services/localStore";
@@ -24,6 +25,7 @@ const SIMULATED_USB_KEY_ENABLED =
 const USE_VITE_DEV_SERVER = process.env.NEXUS_LUMA_USE_VITE === "true";
 
 let mainWindow: BrowserWindow | null = null;
+let activeSpeech: ChildProcessWithoutNullStreams | null = null;
 
 function writeStartupLog(message: string, error?: unknown) {
   try {
@@ -214,6 +216,28 @@ ipcMain.handle("sylus:voice-status", async () => {
   if (hasRemoteApi()) return apiGet("/api/syrus/voice-status");
   const { getSylusVoiceStatus } = await import("./services/sylus");
   return getSylusVoiceStatus();
+});
+ipcMain.handle("sylus:speak", async (_event, text: string) => {
+  const speech = String(text || "").replace(/\s+/g, " ").trim().slice(0, 1_200);
+  if (!speech) return { success: false, reason: "No speech text provided." };
+
+  if (activeSpeech && !activeSpeech.killed) activeSpeech.kill();
+
+  if (process.platform === "darwin") {
+    activeSpeech = spawn("say", ["-r", "178", speech]);
+    activeSpeech.once("exit", () => {
+      activeSpeech = null;
+    });
+    activeSpeech.once("error", (error) => writeStartupLog("SYRUS speech failed", error));
+    return { success: true };
+  }
+
+  return { success: false, reason: "Native SYRUS voice is only available on macOS in this build." };
+});
+ipcMain.handle("sylus:stop-speaking", async () => {
+  if (activeSpeech && !activeSpeech.killed) activeSpeech.kill();
+  activeSpeech = null;
+  return { success: true };
 });
 ipcMain.handle("lead-assistant:reply", async (_event, input) => {
   if (hasRemoteApi()) return apiPost("/api/lead-assistant/reply", input);

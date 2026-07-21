@@ -84,6 +84,8 @@ declare global {
           groundedOn: string;
           action?: { type: "navigate"; path: string; label: string };
         }>;
+        speak: (text: string) => Promise<{ success: boolean; reason?: string }>;
+        stopSpeaking: () => Promise<{ success: boolean }>;
         liveUpdates: () => Promise<{
           source: string;
           updates: Array<{ label: string; value: string; tone: "info" | "success" | "warning" | "error" }>;

@@ -48,16 +48,24 @@ export default function SylusPanel() {
   const speechOutputSupported = typeof window !== "undefined" && "speechSynthesis" in window;
 
   useEffect(() => {
-    if (!open || !speakResponses || !speechOutputSupported) return;
+    if (!open || !speakResponses) return;
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage || lastMessage.role !== "assistant" || lastMessage.content.startsWith("Error:")) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(lastMessage.content);
-    utterance.rate = 0.95;
-    utterance.pitch = 0.92;
-    utterance.volume = 0.92;
-    window.speechSynthesis.speak(utterance);
-    return () => window.speechSynthesis.cancel();
+    let disposed = false;
+    window.nexusLuma.sylus.speak(lastMessage.content).then((result) => {
+      if (disposed || result.success || !speechOutputSupported) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(lastMessage.content);
+      utterance.rate = 0.95;
+      utterance.pitch = 0.92;
+      utterance.volume = 0.92;
+      window.speechSynthesis.speak(utterance);
+    });
+    return () => {
+      disposed = true;
+      window.nexusLuma.sylus.stopSpeaking();
+      if (speechOutputSupported) window.speechSynthesis.cancel();
+    };
   }, [messages, open, speakResponses, speechOutputSupported]);
 
   useEffect(() => {
@@ -178,11 +186,13 @@ export default function SylusPanel() {
               </div>
               <button
                 onClick={() => {
-                  if (speakResponses && speechOutputSupported) window.speechSynthesis.cancel();
+                  if (speakResponses) {
+                    window.nexusLuma.sylus.stopSpeaking();
+                    if (speechOutputSupported) window.speechSynthesis.cancel();
+                  }
                   setSpeakResponses((value) => !value);
                 }}
-                disabled={!speechOutputSupported}
-                className={`w-10 h-5 rounded-pill p-0.5 transition-colors disabled:opacity-40 ${speakResponses ? "bg-status-success" : "bg-bg-panelHover"}`}
+                className={`w-10 h-5 rounded-pill p-0.5 transition-colors ${speakResponses ? "bg-status-success" : "bg-bg-panelHover"}`}
               >
                 <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${speakResponses ? "translate-x-5" : ""}`} />
               </button>

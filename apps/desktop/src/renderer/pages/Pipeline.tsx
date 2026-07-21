@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { CheckCircle2, Clock, Inbox, Search, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
@@ -11,6 +12,7 @@ const storageKey = "nexus-luma-customer-pipeline";
 const statuses: PipelineStatus[] = ["Queue", "Work In Process", "Completed"];
 
 export default function Pipeline() {
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PipelineStatus | "All">("All");
   const [meta, setMeta] = useState<PipelineMeta>(() => loadMeta());
@@ -23,6 +25,13 @@ export default function Pipeline() {
   const customers = useMemo(() => {
     return (leadsQuery.data?.leads ?? []).filter((lead) => isPipelineCustomer(meta, lead));
   }, [leadsQuery.data?.leads, meta]);
+
+  useEffect(() => {
+    const customerRow = Number(searchParams.get("customer") || "");
+    if (!Number.isFinite(customerRow)) return;
+    const leadExists = (leadsQuery.data?.leads ?? []).some((lead) => lead.rowNumber === customerRow);
+    if (leadExists) updateCustomer(customerRow, { isCustomer: true, status: "Queue" });
+  }, [leadsQuery.data?.leads, searchParams]);
 
   const filtered = customers.filter((customer) => {
     const query = search.toLowerCase();
@@ -45,7 +54,7 @@ export default function Pipeline() {
     setMeta((current) => {
       const next = {
         ...current,
-          [rowNumber]: {
+        [rowNumber]: {
           isCustomer: true,
           status: current[rowNumber]?.status ?? "Queue",
           completionBy: current[rowNumber]?.completionBy ?? "",

@@ -450,7 +450,7 @@ export default function Leads() {
       localStorage.setItem(pipelineStorageKey, JSON.stringify(next));
       return next;
     });
-    navigate("/pipeline");
+    navigate(`/pipeline?customer=${lead.rowNumber}`);
   }
 }
 
