@@ -22,6 +22,7 @@ export type SheetLead = {
   status: string;
   notes: string;
   sheetOffer: string;
+  spreadsheetName?: string;
   sheetName: string;
   spreadsheetId: string;
   sourceRowNumber: number;
@@ -32,7 +33,7 @@ export type LeadsResult = {
   source: "google_sheets" | "not_configured" | "error";
   leads: SheetLead[];
   columnsMissing?: string[];
-  sheetErrors?: Array<{ offer: string; spreadsheetId: string; sheetName: string; error: string }>;
+  sheetErrors?: Array<{ offer: string; spreadsheetName?: string; spreadsheetId: string; sheetName: string; error: string }>;
   error?: string;
 };
 
@@ -44,7 +45,8 @@ export type AppSettings = {
 };
 
 export type LeadSheetConfig = {
-  offer: "Web Design" | "Digital Products" | "Credit Repair";
+  offer: "Web Design" | "High Income Skills" | "Digital Products" | "Credit Repair";
+  spreadsheetName?: string;
   spreadsheetId: string;
   sheetName?: string;
 };

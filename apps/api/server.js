@@ -72,7 +72,13 @@ function googleStatus() {
     configured: Boolean(configs.length),
     connected: Boolean(configs.length && methods.length),
     methods: methods.map((method) => method.name),
-    sheets: configs.map((sheet) => ({ offer: sheet.offer, spreadsheetId: sheet.spreadsheetId, sheetName: sheet.sheetName, hasScriptUrl: Boolean(sheet.scriptUrl) })),
+    sheets: configs.map((sheet) => ({
+      offer: sheet.offer,
+      spreadsheetName: sheet.spreadsheetName,
+      spreadsheetId: sheet.spreadsheetId,
+      sheetName: sheet.sheetName,
+      hasScriptUrl: Boolean(sheet.scriptUrl),
+    })),
   };
 }
 
@@ -91,6 +97,7 @@ async function listLeads() {
       ? [
           {
             offer: configs[index].offer,
+            spreadsheetName: configs[index].spreadsheetName,
             spreadsheetId: configs[index].spreadsheetId,
             sheetName: configs[index].sheetName,
             error: result.reason instanceof Error ? result.reason.message : String(result.reason),
@@ -112,6 +119,7 @@ async function listLeads() {
     scanSources,
     sheetResults: fulfilled.map((result) => ({
       offer: result.offer,
+      spreadsheetName: result.spreadsheetName,
       sheetName: result.sheetName,
       spreadsheetId: result.spreadsheetId,
       source: result.source,
@@ -274,10 +282,11 @@ async function listOneSheetAppsScript(config, sheetIndex) {
   const payload = await response.json();
   if (Array.isArray(payload.leads)) {
     const leads = payload.leads
-      .map((lead, index) => mapWebhookLead(lead, { offer: config.offer, sheetName: config.sheetName, spreadsheetId: config.spreadsheetId }, index))
+      .map((lead, index) => mapWebhookLead(lead, { offer: config.offer, sheetName: config.sheetName, spreadsheetId: config.spreadsheetId, spreadsheetName: config.spreadsheetName }, index))
       .map((lead, index) => ({ ...lead, rowNumber: sheetIndex * 100_000 + (lead.sourceRowNumber || index + 2) }));
     return {
       offer: config.offer,
+      spreadsheetName: config.spreadsheetName,
       spreadsheetId: config.spreadsheetId,
       sheetName: config.sheetName,
       source: "apps_script",
@@ -330,7 +339,7 @@ function rowsFromPayload(payload) {
 }
 
 function rowsToLeads(rows, config, sheetIndex, source) {
-  if (!rows.length) return { offer: config.offer, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: 0, leads: [], columnsFound: [] };
+  if (!rows.length) return { offer: config.offer, spreadsheetName: config.spreadsheetName, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: 0, leads: [], columnsFound: [] };
 
   const [headerRow, ...dataRows] = rows;
   const columnIndex = buildColumnIndex(headerRow);
@@ -339,7 +348,7 @@ function rowsToLeads(rows, config, sheetIndex, source) {
     .map((row, index) => mapLead(headerRow, row, columnIndex, index, config, sheetIndex));
 
   const columnsFound = Object.keys(columnIndex);
-  return { offer: config.offer, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: dataRows.length, leads, columnsFound };
+  return { offer: config.offer, spreadsheetName: config.spreadsheetName, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: dataRows.length, leads, columnsFound };
 }
 
 function parseCsv(csv) {
@@ -454,6 +463,7 @@ function leadSheetConfigs() {
       .filter((sheet) => sheet.spreadsheetId)
       .map((sheet) => ({
         offer: sheet.offer,
+        spreadsheetName: String(sheet.spreadsheetName || sheet.name || defaultSpreadsheetName(sheet.offer)).trim(),
         spreadsheetId: String(sheet.spreadsheetId).trim(),
         sheetName: String(sheet.sheetName || "Sheet1").trim(),
         scriptUrl: sheet.scriptUrl ? String(sheet.scriptUrl).trim() : "",
@@ -461,20 +471,52 @@ function leadSheetConfigs() {
   }
 
   const configs = [
-    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_WEB_DESIGN_SPREADSHEET_ID, sheetName: process.env.GOOGLE_WEB_DESIGN_SHEET_NAME, scriptUrl: process.env.GOOGLE_WEB_DESIGN_SCRIPT_URL },
-    { offer: "Digital Products", spreadsheetId: process.env.GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_ID, sheetName: process.env.GOOGLE_DIGITAL_PRODUCTS_SHEET_NAME, scriptUrl: process.env.GOOGLE_DIGITAL_PRODUCTS_SCRIPT_URL },
-    { offer: "Credit Repair", spreadsheetId: process.env.GOOGLE_CREDIT_REPAIR_SPREADSHEET_ID, sheetName: process.env.GOOGLE_CREDIT_REPAIR_SHEET_NAME, scriptUrl: process.env.GOOGLE_CREDIT_REPAIR_SCRIPT_URL },
-    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID, sheetName: process.env.GOOGLE_SHEET_NAME, scriptUrl: process.env.GOOGLE_SCRIPT_URL },
+    {
+      offer: "Web Design",
+      spreadsheetName: process.env.GOOGLE_WEB_DESIGN_SPREADSHEET_NAME || "Nexus Luma INQ",
+      spreadsheetId: process.env.GOOGLE_WEB_DESIGN_SPREADSHEET_ID,
+      sheetName: process.env.GOOGLE_WEB_DESIGN_SHEET_NAME,
+      scriptUrl: process.env.GOOGLE_WEB_DESIGN_SCRIPT_URL,
+    },
+    {
+      offer: "High Income Skills",
+      spreadsheetName: process.env.GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_NAME || "High Income Skills",
+      spreadsheetId: process.env.GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_ID,
+      sheetName: process.env.GOOGLE_DIGITAL_PRODUCTS_SHEET_NAME,
+      scriptUrl: process.env.GOOGLE_DIGITAL_PRODUCTS_SCRIPT_URL,
+    },
+    {
+      offer: "Credit Repair",
+      spreadsheetName: process.env.GOOGLE_CREDIT_REPAIR_SPREADSHEET_NAME || "The Credit Project",
+      spreadsheetId: process.env.GOOGLE_CREDIT_REPAIR_SPREADSHEET_ID,
+      sheetName: process.env.GOOGLE_CREDIT_REPAIR_SHEET_NAME,
+      scriptUrl: process.env.GOOGLE_CREDIT_REPAIR_SCRIPT_URL,
+    },
+    {
+      offer: "Web Design",
+      spreadsheetName: process.env.GOOGLE_SPREADSHEET_NAME || "Nexus Luma INQ",
+      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+      sheetName: process.env.GOOGLE_SHEET_NAME,
+      scriptUrl: process.env.GOOGLE_SCRIPT_URL,
+    },
   ];
 
   return configs
     .filter((sheet) => sheet.spreadsheetId)
     .map((sheet) => ({
       offer: sheet.offer,
+      spreadsheetName: String(sheet.spreadsheetName || defaultSpreadsheetName(sheet.offer)).trim(),
       spreadsheetId: String(sheet.spreadsheetId).trim(),
       sheetName: String(sheet.sheetName || "Sheet1").trim(),
       scriptUrl: sheet.scriptUrl ? String(sheet.scriptUrl).trim() : "",
     }));
+}
+
+function defaultSpreadsheetName(offer) {
+  if (offer === "Web Design") return "Nexus Luma INQ";
+  if (offer === "High Income Skills" || offer === "Digital Products") return "High Income Skills";
+  if (offer === "Credit Repair") return "The Credit Project";
+  return String(offer || "Not Available yet");
 }
 
 async function liveUpdates() {

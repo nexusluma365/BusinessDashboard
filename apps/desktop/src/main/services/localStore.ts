@@ -30,7 +30,8 @@ export type AppSettings = {
 };
 
 export type LeadSheetConfig = {
-  offer: "Web Design" | "Digital Products" | "Credit Repair";
+  offer: "Web Design" | "High Income Skills" | "Digital Products" | "Credit Repair";
+  spreadsheetName?: string;
   spreadsheetId: string;
   sheetName?: string;
 };

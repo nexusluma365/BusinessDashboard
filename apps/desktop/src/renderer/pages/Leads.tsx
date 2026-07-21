@@ -5,9 +5,9 @@ import Header from "@/components/Header";
 import type { LeadSheetConfig } from "@/lib/bridge";
 
 const defaultLeadSheets: LeadSheetConfig[] = [
-  { offer: "Web Design", spreadsheetId: "", sheetName: "Sheet1" },
-  { offer: "Digital Products", spreadsheetId: "", sheetName: "Sheet1" },
-  { offer: "Credit Repair", spreadsheetId: "", sheetName: "Sheet1" },
+  { offer: "Web Design", spreadsheetName: "Nexus Luma INQ", spreadsheetId: "", sheetName: "Appointment Booking" },
+  { offer: "High Income Skills", spreadsheetName: "High Income Skills", spreadsheetId: "", sheetName: "Q1" },
+  { offer: "Credit Repair", spreadsheetName: "The Credit Project", spreadsheetId: "", sheetName: "2026 Data" },
 ];
 
 export default function Leads() {
@@ -34,7 +34,7 @@ export default function Leads() {
     }
     if (settings.data.googleSpreadsheetId) {
       setLeadSheetsInput(
-        mergeLeadSheets([{ offer: "Web Design", spreadsheetId: settings.data.googleSpreadsheetId, sheetName: settings.data.googleSheetName || "Sheet1" }])
+        mergeLeadSheets([{ offer: "Web Design", spreadsheetName: "Nexus Luma INQ", spreadsheetId: settings.data.googleSpreadsheetId, sheetName: settings.data.googleSheetName || "Appointment Booking" }])
       );
     }
   }, [settings.data]);
@@ -72,6 +72,7 @@ export default function Leads() {
     await window.nexusLuma.settings.set({
       googleLeadSheets: leadSheetsInput.map((sheet) => ({
         offer: sheet.offer,
+        spreadsheetName: sheet.spreadsheetName?.trim() || defaultSpreadsheetName(sheet.offer),
         spreadsheetId: sheet.spreadsheetId.trim(),
         sheetName: sheet.sheetName?.trim() || "Sheet1",
       })),
@@ -83,7 +84,7 @@ export default function Leads() {
   const configuredLeadSheets = settings.data?.googleLeadSheets?.length
     ? settings.data.googleLeadSheets
     : settings.data?.googleSpreadsheetId
-      ? [{ offer: "Web Design" as const, spreadsheetId: settings.data.googleSpreadsheetId, sheetName: settings.data.googleSheetName || "Sheet1" }]
+      ? [{ offer: "Web Design" as const, spreadsheetName: "Nexus Luma INQ", spreadsheetId: settings.data.googleSpreadsheetId, sheetName: settings.data.googleSheetName || "Appointment Booking" }]
       : [];
   const needsSetup =
     googleStatus.data && (!googleStatus.data.connected || configuredLeadSheets.length < defaultLeadSheets.length);
@@ -188,8 +189,8 @@ export default function Leads() {
             <div className="mt-3 space-y-2">
               {leadsQuery.data?.sheetErrors?.map((sheet) => (
                 <div key={`${sheet.offer}-${sheet.spreadsheetId}-${sheet.sheetName}`} className="rounded-card border border-border bg-bg-panel px-3 py-2 text-xs text-text-secondary">
-                  <span className="font-medium text-text-primary">{sheet.offer}</span>
-                  <span className="text-text-muted"> · {sheet.sheetName}</span>
+                  <span className="font-medium text-text-primary">{sheet.spreadsheetName || sheet.offer}</span>
+                  <span className="text-text-muted"> · tab: {sheet.sheetName}</span>
                   <div className="mt-1 break-words">{sheet.error}</div>
                 </div>
               ))}
@@ -323,4 +324,11 @@ function mergeLeadSheets(saved: LeadSheetConfig[]) {
     ...sheet,
     ...(saved.find((item) => item.offer === sheet.offer) ?? {}),
   }));
+}
+
+function defaultSpreadsheetName(offer: string) {
+  if (offer === "Web Design") return "Nexus Luma INQ";
+  if (offer === "High Income Skills" || offer === "Digital Products") return "High Income Skills";
+  if (offer === "Credit Repair") return "The Credit Project";
+  return offer || "Not Available yet";
 }

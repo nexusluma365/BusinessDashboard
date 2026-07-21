@@ -24,6 +24,7 @@ export type SheetLead = {
   status: string;
   notes: string;
   sheetOffer: string;
+  spreadsheetName?: string;
   sheetName: string;
   spreadsheetId: string;
   sourceRowNumber: number;
@@ -115,6 +116,7 @@ export async function fetchLeadsFromSheet(): Promise<{
       ? [
           {
             offer: configuredSheets[index].offer,
+            spreadsheetName: configuredSheets[index].spreadsheetName,
             spreadsheetId: configuredSheets[index].spreadsheetId,
             sheetName: configuredSheets[index].sheetName || "Sheet1",
             error: result.reason instanceof Error ? result.reason.message : String(result.reason),
@@ -131,6 +133,7 @@ export async function fetchLeadsFromSheet(): Promise<{
 
 export type SheetError = {
   offer: string;
+  spreadsheetName?: string;
   spreadsheetId: string;
   sheetName: string;
   error: string;
@@ -192,6 +195,7 @@ async function fetchOneSheet(
         status,
         notes: cell(row as string[], columnIndex.notes),
         sheetOffer: config.offer,
+        spreadsheetName: config.spreadsheetName,
         sheetName: config.sheetName || "Sheet1",
         spreadsheetId: config.spreadsheetId,
         raw,
@@ -210,11 +214,19 @@ export function normalizeLeadSheets(
   if (configured.length) {
     return configured.map((sheet) => ({
       ...sheet,
+      spreadsheetName: sheet.spreadsheetName?.trim() || defaultSpreadsheetName(sheet.offer),
       spreadsheetId: sheet.spreadsheetId.trim(),
       sheetName: sheet.sheetName?.trim() || "Sheet1",
     }));
   }
   return legacySpreadsheetId?.trim()
-    ? [{ offer: "Web Design" as const, spreadsheetId: legacySpreadsheetId.trim(), sheetName: legacySheetName?.trim() || "Sheet1" }]
+    ? [{ offer: "Web Design" as const, spreadsheetName: "Nexus Luma INQ", spreadsheetId: legacySpreadsheetId.trim(), sheetName: legacySheetName?.trim() || "Appointment Booking" }]
     : [];
+}
+
+function defaultSpreadsheetName(offer: string) {
+  if (offer === "Web Design") return "Nexus Luma INQ";
+  if (offer === "High Income Skills" || offer === "Digital Products") return "High Income Skills";
+  if (offer === "Credit Repair") return "The Credit Project";
+  return offer || "Not Available yet";
 }
