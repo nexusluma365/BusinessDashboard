@@ -33,8 +33,6 @@ const api = {
     ask: (question: string) => ipcRenderer.invoke("sylus:ask", question),
     liveUpdates: () => ipcRenderer.invoke("sylus:live-updates"),
     voiceStatus: () => ipcRenderer.invoke("sylus:voice-status"),
-    speak: (text: string) => ipcRenderer.invoke("sylus:speak", text),
-    stopSpeaking: () => ipcRenderer.invoke("sylus:stop-speaking"),
   },
   leadAssistant: {
     reply: (input: {

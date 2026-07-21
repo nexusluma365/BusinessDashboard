@@ -155,11 +155,16 @@ export async function getSylusLiveUpdates(): Promise<{
 }
 
 export function getSylusVoiceStatus() {
-  const vapiConfigured = Boolean(process.env.VAPI_API_KEY || process.env.VAPI_PUBLIC_KEY);
+  const publicKey = process.env.VAPI_PUBLIC_KEY || "";
+  const assistantId = process.env.VAPI_ASSISTANT_ID || "";
+  const vapiConfigured = Boolean(publicKey && assistantId);
   const provider = getActiveProvider();
   return {
     configured: vapiConfigured && Boolean(provider),
     vapiConfigured,
+    publicKey,
+    assistantId,
+    assistantConfigured: Boolean(assistantId),
     aiConfigured: Boolean(provider),
     provider: provider?.name ?? null,
     mode: "admin_voice",

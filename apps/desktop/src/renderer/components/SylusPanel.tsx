@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Activity, Lock, Mic, Navigation, Radio, Send, Volume2, VolumeX, X } from "lucide-react";
+import { Activity, Lock, Mic, Navigation, PhoneCall, PhoneOff, Radio, Send, X } from "lucide-react";
 import { useSylusStore } from "@/store/useSylusStore";
 
 type BrowserSpeechRecognition = {
@@ -30,9 +30,11 @@ export default function SylusPanel() {
   const { open, toggle, messages, loading, ask } = useSylusStore();
   const [input, setInput] = useState("");
   const [alwaysListening, setAlwaysListening] = useState(true);
-  const [speakResponses, setSpeakResponses] = useState(true);
   const [voiceDetected, setVoiceDetected] = useState(false);
+  const [vapiState, setVapiState] = useState<"idle" | "connecting" | "connected" | "speaking">("idle");
+  const [voiceError, setVoiceError] = useState("");
   const voicePulseTimer = useRef<number | null>(null);
+  const vapiRef = useRef<{ stop: () => void } | null>(null);
   const liveUpdates = useQuery({
     queryKey: ["sylus-live-updates"],
     queryFn: () => window.nexusLuma.sylus.liveUpdates(),
@@ -45,28 +47,8 @@ export default function SylusPanel() {
     enabled: open,
   });
   const speechSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
-  const speechOutputSupported = typeof window !== "undefined" && "speechSynthesis" in window;
-
-  useEffect(() => {
-    if (!open || !speakResponses) return;
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== "assistant" || lastMessage.content.startsWith("Error:")) return;
-    let disposed = false;
-    window.nexusLuma.sylus.speak(lastMessage.content).then((result) => {
-      if (disposed || result.success || !speechOutputSupported) return;
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(lastMessage.content);
-      utterance.rate = 0.95;
-      utterance.pitch = 0.92;
-      utterance.volume = 0.92;
-      window.speechSynthesis.speak(utterance);
-    });
-    return () => {
-      disposed = true;
-      window.nexusLuma.sylus.stopSpeaking();
-      if (speechOutputSupported) window.speechSynthesis.cancel();
-    };
-  }, [messages, open, speakResponses, speechOutputSupported]);
+  const voiceReady = Boolean(voiceStatus.data?.publicKey && voiceStatus.data?.assistantId);
+  const vapiActive = vapiState !== "idle";
 
   useEffect(() => {
     if (!alwaysListening || !speechSupported) return;
@@ -90,6 +72,8 @@ export default function SylusPanel() {
         voicePulseTimer.current = window.setTimeout(() => setVoiceDetected(false), 2400);
         if (!open) {
           toggle();
+        } else if (!vapiActive && voiceReady) {
+          void startVapiCall();
         }
       }
     };
@@ -114,7 +98,14 @@ export default function SylusPanel() {
       recognition.stop();
       if (voicePulseTimer.current) window.clearTimeout(voicePulseTimer.current);
     };
-  }, [alwaysListening, open, speechSupported, toggle]);
+  }, [alwaysListening, open, speechSupported, toggle, vapiActive, voiceReady]);
+
+  useEffect(() => {
+    return () => {
+      vapiRef.current?.stop();
+      vapiRef.current = null;
+    };
+  }, []);
 
   if (!open) {
     return null;
@@ -130,6 +121,108 @@ export default function SylusPanel() {
     setInput("");
   }
 
+  async function startVapiCall() {
+    const publicKey = voiceStatus.data?.publicKey;
+    const assistantId = voiceStatus.data?.assistantId;
+
+    if (!publicKey || !assistantId) {
+      setVoiceError("Add VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID in Railway to activate SYRUS voice.");
+      return;
+    }
+
+    try {
+      setVoiceError("");
+      setVapiState("connecting");
+      const { default: Vapi } = await import("@vapi-ai/web");
+      const vapi = new Vapi(publicKey);
+      vapiRef.current = vapi;
+
+      vapi.on("call-start", async () => {
+        setVapiState("connected");
+        setVoiceDetected(true);
+        if (voicePulseTimer.current) window.clearTimeout(voicePulseTimer.current);
+        voicePulseTimer.current = window.setTimeout(() => setVoiceDetected(false), 1600);
+
+        try {
+          const snapshot = await window.nexusLuma.sylus.liveUpdates();
+          vapi.send({
+            type: "add-message",
+            message: {
+              role: "system",
+              content: [
+                "You are SYRUS, the admin-only VAPI voice assistant inside the Nexus Luma Command Center.",
+                "Keep customer-facing text/chat separate. Never reveal admin data to leads or customers.",
+                "Use this live Command Center snapshot when the admin asks about app status or lead data.",
+                `Snapshot source: ${snapshot.source}`,
+                ...snapshot.updates.map((update) => `${update.label}: ${update.value}`),
+              ].join("\n"),
+            },
+          });
+        } catch {
+          vapi.send({
+            type: "add-message",
+            message: {
+              role: "system",
+              content: "Live Command Center snapshot is temporarily unavailable. Tell the admin you can still answer general app questions.",
+            },
+          });
+        }
+      });
+
+      vapi.on("speech-start", () => {
+        setVoiceDetected(true);
+        setVapiState("speaking");
+      });
+
+      vapi.on("speech-end", () => {
+        setVoiceDetected(false);
+        setVapiState("connected");
+      });
+
+      vapi.on("call-end", () => {
+        setVoiceDetected(false);
+        setVapiState("idle");
+        vapiRef.current = null;
+      });
+
+      vapi.on("error", (error: unknown) => {
+        const message = error instanceof Error ? error.message : "VAPI voice failed to start.";
+        setVoiceError(message);
+        setVoiceDetected(false);
+        setVapiState("idle");
+        vapiRef.current = null;
+      });
+
+      await vapi.start(assistantId, {
+        variableValues: {
+          appName: "SYRUS Command Center",
+          wakePhrase: "Yo SYRUS",
+          pronunciation: "SYY RR UHH SSS",
+        },
+      });
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "VAPI voice failed to start.");
+      setVoiceDetected(false);
+      setVapiState("idle");
+      vapiRef.current = null;
+    }
+  }
+
+  function stopVapiCall() {
+    vapiRef.current?.stop();
+    vapiRef.current = null;
+    setVoiceDetected(false);
+    setVapiState("idle");
+  }
+
+  function toggleVapiCall() {
+    if (vapiActive) {
+      stopVapiCall();
+      return;
+    }
+    void startVapiCall();
+  }
+
   return (
     <div className="fixed right-5 bottom-5 z-50 w-[390px] max-h-[calc(100vh-40px)] bg-bg-secondary border border-border rounded-card shadow-card flex flex-col overflow-hidden">
       <div
@@ -138,11 +231,11 @@ export default function SylusPanel() {
         <div className="flex items-center justify-between px-4 h-16 border-b border-border-subtle">
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-full bg-accent-goldMuted text-accent-gold flex items-center justify-center">
-              <VoiceOrb active={voiceDetected || loading} compact />
+              <VoiceOrb active={voiceDetected || loading || vapiActive} compact />
             </span>
             <div>
               <div className="text-sm font-medium">SYRUS Voice</div>
-              <div className="text-[11px] text-text-muted">Admin-only voice assistant</div>
+              <div className="text-[11px] text-text-muted">Admin-only VAPI voice assistant</div>
             </div>
           </div>
           <button onClick={toggle} className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-panelHover">
@@ -176,26 +269,35 @@ export default function SylusPanel() {
                 ))}
               </div>
               {!speechSupported && (
-                <div className="text-[11px] text-status-warning mt-2">Wake listening needs VAPI or browser speech support.</div>
+                <div className="text-[11px] text-status-warning mt-2">Wake phrase listening needs browser speech support; VAPI still works from the mic button.</div>
               )}
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-card bg-bg-panel border border-border px-3 py-2">
-              <div className="flex items-center gap-2 text-xs font-medium">
-                {speakResponses ? <Volume2 size={14} className="text-status-success" /> : <VolumeX size={14} className="text-text-muted" />}
-                Speak Answers
+            <div className="rounded-card bg-bg-panel border border-border px-3 py-2 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  <PhoneCall size={14} className={voiceReady ? "text-status-success" : "text-text-muted"} />
+                  VAPI Voice Call
+                </div>
+                <button
+                  onClick={toggleVapiCall}
+                  disabled={!voiceReady && !vapiActive}
+                  className={`rounded-pill px-3 py-1 text-[11px] font-medium transition ${
+                    vapiActive
+                      ? "bg-status-error/15 text-status-error hover:bg-status-error/25"
+                      : voiceReady
+                        ? "bg-status-success/15 text-status-success hover:bg-status-success/25"
+                        : "bg-bg-panelHover text-text-muted cursor-not-allowed"
+                  }`}
+                >
+                  {vapiActive ? "End call" : "Start call"}
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  if (speakResponses) {
-                    window.nexusLuma.sylus.stopSpeaking();
-                    if (speechOutputSupported) window.speechSynthesis.cancel();
-                  }
-                  setSpeakResponses((value) => !value);
-                }}
-                className={`w-10 h-5 rounded-pill p-0.5 transition-colors ${speakResponses ? "bg-status-success" : "bg-bg-panelHover"}`}
-              >
-                <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${speakResponses ? "translate-x-5" : ""}`} />
-              </button>
+              <div className="text-[11px] text-text-muted">
+                {voiceReady
+                  ? `Status: ${vapiState === "idle" ? "ready" : vapiState}. Powered by VAPI.`
+                  : "Waiting for VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID in Railway."}
+              </div>
+              {voiceError ? <div className="text-[11px] text-status-error">{voiceError}</div> : null}
             </div>
           </div>
 
@@ -237,9 +339,9 @@ export default function SylusPanel() {
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium">Voice lane</div>
               <p className="text-[11px] text-text-muted mt-1">
-                {voiceStatus.data?.configured
-                  ? `VAPI ready with ${voiceStatus.data.provider}.`
-                  : "VAPI voice is separate from Lead Text; add VAPI plus Anthropic or OpenAI keys to activate live wake-word audio."}
+                {voiceReady
+                  ? "Click the mic to start an admin-only SYRUS VAPI session. Customer/lead text chat stays isolated."
+                  : "VAPI voice is separate from Lead Text; add VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID to Railway."}
               </p>
             </div>
             <Lock size={13} className="text-accent-gold shrink-0" />
@@ -269,8 +371,20 @@ export default function SylusPanel() {
         </div>
 
         <form onSubmit={handleSubmit} className="p-3 border-t border-border-subtle flex items-center gap-2">
-          <button type="button" className="p-2 rounded-full bg-bg-panel border border-border text-text-muted hover:text-accent-gold transition-colors" title="Voice input via VAPI">
-            <Mic size={15} />
+          <button
+            type="button"
+            onClick={toggleVapiCall}
+            disabled={!voiceReady && !vapiActive}
+            className={`p-2 rounded-full bg-bg-panel border border-border transition-colors ${
+              vapiActive
+                ? "text-status-error border-status-error/40"
+                : voiceReady
+                  ? "text-text-muted hover:text-accent-gold"
+                  : "text-text-muted/40 cursor-not-allowed"
+            }`}
+            title={vapiActive ? "End SYRUS VAPI call" : "Start SYRUS VAPI call"}
+          >
+            {vapiActive ? <PhoneOff size={15} /> : <Mic size={15} />}
           </button>
           <input
             value={input}

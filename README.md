@@ -70,6 +70,7 @@ OPENAI_MODEL=gpt-4.1
 AI_PROVIDER=anthropic
 VAPI_API_KEY=
 VAPI_PUBLIC_KEY=
+VAPI_ASSISTANT_ID=
 ```
 
 After Railway is deployed, set this for the macOS app:

@@ -84,8 +84,6 @@ declare global {
           groundedOn: string;
           action?: { type: "navigate"; path: string; label: string };
         }>;
-        speak: (text: string) => Promise<{ success: boolean; reason?: string }>;
-        stopSpeaking: () => Promise<{ success: boolean }>;
         liveUpdates: () => Promise<{
           source: string;
           updates: Array<{ label: string; value: string; tone: "info" | "success" | "warning" | "error" }>;
@@ -94,6 +92,9 @@ declare global {
         voiceStatus: () => Promise<{
           configured: boolean;
           vapiConfigured: boolean;
+          publicKey?: string;
+          assistantId?: string;
+          assistantConfigured?: boolean;
           aiConfigured: boolean;
           provider: "anthropic" | "openai" | null;
           mode: "admin_voice";

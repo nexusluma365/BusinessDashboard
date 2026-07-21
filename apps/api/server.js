@@ -675,10 +675,15 @@ async function replyToLead(body) {
 
 function voiceStatus() {
   const provider = activeProvider();
-  const vapiConfigured = Boolean(process.env.VAPI_API_KEY || process.env.VAPI_PUBLIC_KEY);
+  const publicKey = process.env.VAPI_PUBLIC_KEY || "";
+  const assistantId = process.env.VAPI_ASSISTANT_ID || "";
+  const vapiConfigured = Boolean(publicKey && assistantId);
   return {
     configured: vapiConfigured && Boolean(provider),
     vapiConfigured,
+    publicKey,
+    assistantId,
+    assistantConfigured: Boolean(assistantId),
     aiConfigured: Boolean(provider),
     provider,
     mode: "admin_voice",
