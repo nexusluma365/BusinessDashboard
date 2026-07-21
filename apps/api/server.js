@@ -72,7 +72,7 @@ function googleStatus() {
     configured: Boolean(configs.length),
     connected: Boolean(configs.length && methods.length),
     methods: methods.map((method) => method.name),
-    sheets: configs.map((sheet) => ({ offer: sheet.offer, spreadsheetId: sheet.spreadsheetId, sheetName: sheet.sheetName })),
+    sheets: configs.map((sheet) => ({ offer: sheet.offer, spreadsheetId: sheet.spreadsheetId, sheetName: sheet.sheetName, hasScriptUrl: Boolean(sheet.scriptUrl) })),
   };
 }
 
@@ -251,7 +251,8 @@ function googleReadMethods() {
 
 async function listOneSheetWithFallback(config, sheetIndex, methods) {
   const errors = [];
-  for (const method of methods) {
+  const configMethods = config.scriptUrl ? [{ name: "apps_script", read: listOneSheetAppsScript }, ...methods] : methods;
+  for (const method of configMethods) {
     try {
       return await method.read(config, sheetIndex);
     } catch (error) {
@@ -259,6 +260,39 @@ async function listOneSheetWithFallback(config, sheetIndex, methods) {
     }
   }
   throw new Error(errors.join(" | ") || "No Google Sheets read method is configured.");
+}
+
+async function listOneSheetAppsScript(config, sheetIndex) {
+  const url = new URL(config.scriptUrl);
+  url.searchParams.set("syrusScan", "1");
+  url.searchParams.set("sheetName", config.sheetName);
+  url.searchParams.set("offer", config.offer);
+
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok) throw new Error(`Apps Script scan failed (${response.status}).`);
+
+  const payload = await response.json();
+  if (Array.isArray(payload.leads)) {
+    const leads = payload.leads
+      .map((lead, index) => mapWebhookLead(lead, { offer: config.offer, sheetName: config.sheetName, spreadsheetId: config.spreadsheetId }, index))
+      .map((lead, index) => ({ ...lead, rowNumber: sheetIndex * 100_000 + (lead.sourceRowNumber || index + 2) }));
+    return {
+      offer: config.offer,
+      spreadsheetId: config.spreadsheetId,
+      sheetName: config.sheetName,
+      source: "apps_script",
+      rows: leads.length,
+      leads,
+      columnsFound: Object.keys(headerAliases),
+    };
+  }
+
+  if (Array.isArray(payload.rows)) {
+    const rows = rowsFromPayload(payload);
+    return rowsToLeads(rows, config, sheetIndex, "apps_script");
+  }
+
+  throw new Error("Apps Script scan response did not include leads or rows.");
 }
 
 async function listOneSheet(sheets, config, sheetIndex, source = "google_sheets_api") {
@@ -277,6 +311,22 @@ async function listOneSheetPublicCsv(config, sheetIndex) {
   const csv = await response.text();
   const rows = parseCsv(csv);
   return rowsToLeads(rows, config, sheetIndex, "public_csv");
+}
+
+function rowsFromPayload(payload) {
+  if (Array.isArray(payload.headers)) {
+    return [
+      payload.headers.map((header) => String(header || "")),
+      ...payload.rows.map((row) => (Array.isArray(row) ? row : payload.headers.map((header) => row[header]))),
+    ];
+  }
+
+  if (payload.rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
+    const headers = Array.from(new Set(payload.rows.flatMap((row) => Object.keys(row))));
+    return [headers, ...payload.rows.map((row) => headers.map((header) => row[header]))];
+  }
+
+  return payload.rows;
 }
 
 function rowsToLeads(rows, config, sheetIndex, source) {
@@ -406,14 +456,15 @@ function leadSheetConfigs() {
         offer: sheet.offer,
         spreadsheetId: String(sheet.spreadsheetId).trim(),
         sheetName: String(sheet.sheetName || "Sheet1").trim(),
+        scriptUrl: sheet.scriptUrl ? String(sheet.scriptUrl).trim() : "",
       }));
   }
 
   const configs = [
-    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_WEB_DESIGN_SPREADSHEET_ID, sheetName: process.env.GOOGLE_WEB_DESIGN_SHEET_NAME },
-    { offer: "Digital Products", spreadsheetId: process.env.GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_ID, sheetName: process.env.GOOGLE_DIGITAL_PRODUCTS_SHEET_NAME },
-    { offer: "Credit Repair", spreadsheetId: process.env.GOOGLE_CREDIT_REPAIR_SPREADSHEET_ID, sheetName: process.env.GOOGLE_CREDIT_REPAIR_SHEET_NAME },
-    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID, sheetName: process.env.GOOGLE_SHEET_NAME },
+    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_WEB_DESIGN_SPREADSHEET_ID, sheetName: process.env.GOOGLE_WEB_DESIGN_SHEET_NAME, scriptUrl: process.env.GOOGLE_WEB_DESIGN_SCRIPT_URL },
+    { offer: "Digital Products", spreadsheetId: process.env.GOOGLE_DIGITAL_PRODUCTS_SPREADSHEET_ID, sheetName: process.env.GOOGLE_DIGITAL_PRODUCTS_SHEET_NAME, scriptUrl: process.env.GOOGLE_DIGITAL_PRODUCTS_SCRIPT_URL },
+    { offer: "Credit Repair", spreadsheetId: process.env.GOOGLE_CREDIT_REPAIR_SPREADSHEET_ID, sheetName: process.env.GOOGLE_CREDIT_REPAIR_SHEET_NAME, scriptUrl: process.env.GOOGLE_CREDIT_REPAIR_SCRIPT_URL },
+    { offer: "Web Design", spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID, sheetName: process.env.GOOGLE_SHEET_NAME, scriptUrl: process.env.GOOGLE_SCRIPT_URL },
   ];
 
   return configs
@@ -422,6 +473,7 @@ function leadSheetConfigs() {
       offer: sheet.offer,
       spreadsheetId: String(sheet.spreadsheetId).trim(),
       sheetName: String(sheet.sheetName || "Sheet1").trim(),
+      scriptUrl: sheet.scriptUrl ? String(sheet.scriptUrl).trim() : "",
     }));
 }
 
