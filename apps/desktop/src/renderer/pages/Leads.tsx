@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Search, RefreshCw, Link2, CheckCircle2, Circle, ExternalLink, Mail, MessageSquareText } from "lucide-react";
+import { Search, RefreshCw, Link2, CheckCircle2, Circle, ExternalLink, Mail, MessageSquareText, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { LeadSheetConfig, SheetLead } from "@/lib/bridge";
 
@@ -10,6 +10,8 @@ const defaultLeadSheets: LeadSheetConfig[] = [
   { offer: "High Income Skills", spreadsheetName: "High Income Skills", spreadsheetId: "", sheetName: "Q1" },
   { offer: "Credit Repair", spreadsheetName: "The Credit Project", spreadsheetId: "", sheetName: "2026 Data" },
 ];
+const pipelineStorageKey = "nexus-luma-customer-pipeline";
+type PipelineMeta = Record<number, { isCustomer?: boolean; status: "Queue" | "Work In Process" | "Completed"; completionBy: string }>;
 
 export default function Leads() {
   const queryClient = useQueryClient();
@@ -17,6 +19,7 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [offerFilter, setOfferFilter] = useState<string>("All");
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  const [pipelineMeta, setPipelineMeta] = useState<PipelineMeta>(() => loadPipelineMeta());
   const [leadSheetsInput, setLeadSheetsInput] = useState<LeadSheetConfig[]>(defaultLeadSheets);
 
   const googleStatus = useQuery({
@@ -354,6 +357,17 @@ export default function Leads() {
                       >
                         <MessageSquareText size={13} /> Text
                       </button>
+                      <button
+                        onClick={() => markAsCustomer(lead)}
+                        className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition ${
+                          pipelineMeta[lead.rowNumber]?.isCustomer || lead.purchased
+                            ? "border-status-success/30 bg-status-success/10 text-status-success"
+                            : "border-border bg-bg-panel text-text-secondary hover:bg-bg-panelHover hover:text-text-primary"
+                        }`}
+                        title="Add this lead to the customer pipeline"
+                      >
+                        <UserCheck size={13} /> Customer
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -422,6 +436,22 @@ export default function Leads() {
     if (!lead?.phone.trim()) return;
     navigate(`/conversations?lead=${lead.rowNumber}`);
   }
+
+  function markAsCustomer(lead: SheetLead) {
+    setPipelineMeta((current) => {
+      const next = {
+        ...current,
+        [lead.rowNumber]: {
+          isCustomer: true,
+          status: current[lead.rowNumber]?.status ?? "Queue",
+          completionBy: current[lead.rowNumber]?.completionBy ?? "",
+        },
+      };
+      localStorage.setItem(pipelineStorageKey, JSON.stringify(next));
+      return next;
+    });
+    navigate("/pipeline");
+  }
 }
 
 function mergeLeadSheets(saved: LeadSheetConfig[]) {
@@ -448,4 +478,12 @@ function isEmail(value: string) {
 
 function isLiveLeadSource(source?: string) {
   return source === "google_sheets" || source === "webhook_google_sheets" || source === "webhook";
+}
+
+function loadPipelineMeta(): PipelineMeta {
+  try {
+    return JSON.parse(localStorage.getItem(pipelineStorageKey) || "{}") as PipelineMeta;
+  } catch {
+    return {};
+  }
 }

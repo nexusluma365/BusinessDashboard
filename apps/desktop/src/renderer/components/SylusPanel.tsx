@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Activity, Lock, Mic, Navigation, Radio, Send, X } from "lucide-react";
+import { Activity, Lock, Mic, Navigation, Radio, Send, Volume2, VolumeX, X } from "lucide-react";
 import { useSylusStore } from "@/store/useSylusStore";
 
 type BrowserSpeechRecognition = {
@@ -30,6 +30,7 @@ export default function SylusPanel() {
   const { open, toggle, messages, loading, ask } = useSylusStore();
   const [input, setInput] = useState("");
   const [alwaysListening, setAlwaysListening] = useState(true);
+  const [speakResponses, setSpeakResponses] = useState(true);
   const [voiceDetected, setVoiceDetected] = useState(false);
   const voicePulseTimer = useRef<number | null>(null);
   const liveUpdates = useQuery({
@@ -44,6 +45,20 @@ export default function SylusPanel() {
     enabled: open,
   });
   const speechSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const speechOutputSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  useEffect(() => {
+    if (!open || !speakResponses || !speechOutputSupported) return;
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== "assistant" || lastMessage.content.startsWith("Error:")) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(lastMessage.content);
+    utterance.rate = 0.95;
+    utterance.pitch = 0.92;
+    utterance.volume = 0.92;
+    window.speechSynthesis.speak(utterance);
+    return () => window.speechSynthesis.cancel();
+  }, [messages, open, speakResponses, speechOutputSupported]);
 
   useEffect(() => {
     if (!alwaysListening || !speechSupported) return;
@@ -155,6 +170,22 @@ export default function SylusPanel() {
               {!speechSupported && (
                 <div className="text-[11px] text-status-warning mt-2">Wake listening needs VAPI or browser speech support.</div>
               )}
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-card bg-bg-panel border border-border px-3 py-2">
+              <div className="flex items-center gap-2 text-xs font-medium">
+                {speakResponses ? <Volume2 size={14} className="text-status-success" /> : <VolumeX size={14} className="text-text-muted" />}
+                Speak Answers
+              </div>
+              <button
+                onClick={() => {
+                  if (speakResponses && speechOutputSupported) window.speechSynthesis.cancel();
+                  setSpeakResponses((value) => !value);
+                }}
+                disabled={!speechOutputSupported}
+                className={`w-10 h-5 rounded-pill p-0.5 transition-colors disabled:opacity-40 ${speakResponses ? "bg-status-success" : "bg-bg-panelHover"}`}
+              >
+                <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${speakResponses ? "translate-x-5" : ""}`} />
+              </button>
             </div>
           </div>
 

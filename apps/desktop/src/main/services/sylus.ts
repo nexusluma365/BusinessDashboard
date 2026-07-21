@@ -11,8 +11,8 @@ import { getAuthorizedClient } from "./googleAuth";
 
 const ADMIN_ROUTES = [
   { label: "Dashboard", path: "/", keywords: ["dashboard", "home", "overview"] },
-  { label: "Leads", path: "/leads", keywords: ["leads", "lead list", "orders", "order list"] },
   { label: "Pipeline", path: "/pipeline", keywords: ["pipeline", "kanban"] },
+  { label: "Leads", path: "/leads", keywords: ["leads", "lead list", "orders", "order list"] },
   { label: "Conversations", path: "/conversations", keywords: ["conversation", "conversations", "texts", "messages", "sms"] },
   { label: "Conversations", path: "/conversations", keywords: ["lead text", "customer text", "customer chat", "lead chat", "textbot"] },
   { label: "Email Studio", path: "/email-studio", keywords: ["email", "email studio", "email template", "templates"] },
@@ -74,10 +74,17 @@ export async function askSylus(question: string): Promise<{ answer: string; grou
   }
 
   if (!provider) {
+    const snapshot = await buildLeadSnapshot();
+    const answer = [
+      action ? `Opening ${action.label}.` : null,
+      "I can read your live app data right now.",
+      snapshot.summary,
+      "AI reasoning is Not Available yet. Add ANTHROPIC_API_KEY or OPENAI_API_KEY to enable deeper task completion.",
+    ].filter(Boolean).join("\n\n");
     return {
-      answer:
-        "SYLUS isn't connected to an AI provider yet. Add ANTHROPIC_API_KEY or OPENAI_API_KEY in Settings → SYLUS to enable it.",
-      groundedOn: "none",
+      answer,
+      groundedOn: snapshot.source,
+      ...(action ? { action } : {}),
     };
   }
 

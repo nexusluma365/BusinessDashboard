@@ -632,7 +632,13 @@ async function askSyrus(body) {
   const snapshot = summarizeLeads(leads.leads || []);
   const provider = activeProvider();
   if (!provider) {
-    return { answer: action ? `Opening ${action.label}.` : "SYRUS AI is Not Available yet. Configure Anthropic or OpenAI in Railway.", groundedOn: leads.source, ...(action ? { action } : {}) };
+    const answer = [
+      action ? `Opening ${action.label}.` : null,
+      "I can read your live app data right now.",
+      snapshot,
+      "AI reasoning is Not Available yet until Anthropic or OpenAI is configured in Railway, but the live CRM scan is working.",
+    ].filter(Boolean).join("\n\n");
+    return { answer, groundedOn: leads.source, ...(action ? { action } : {}) };
   }
   const answer = await chat(provider, {
     system: [
@@ -773,8 +779,8 @@ function detectNavigationAction(question) {
   if (!/\b(open|go to|show|take me to|pull up|navigate)\b/.test(normalized)) return null;
   const routes = [
     { label: "Dashboard", path: "/", keywords: ["dashboard", "home", "overview"] },
-    { label: "Leads", path: "/leads", keywords: ["leads", "lead list", "orders", "order list"] },
     { label: "Pipeline", path: "/pipeline", keywords: ["pipeline", "customers"] },
+    { label: "Leads", path: "/leads", keywords: ["leads", "lead list", "orders", "order list"] },
     { label: "Conversations", path: "/conversations", keywords: ["conversation", "conversations", "texts", "messages", "sms"] },
     { label: "Email Studio", path: "/email-studio", keywords: ["email", "email studio", "email template", "templates"] },
     { label: "Notifications", path: "/notifications", keywords: ["notifications", "alerts", "updates"] },

@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, CheckCircle2, Clock, Search, UserCheck } from "lucide-react";
+import { CheckCircle2, Clock, Inbox, Search, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
 
-type PipelineStatus = "Not yet" | "In Process" | "Completed";
-type PipelineMeta = Record<number, { status: PipelineStatus; completionBy: string }>;
+type PipelineStatus = "Queue" | "Work In Process" | "Completed";
+type PipelineMeta = Record<number, { isCustomer?: boolean; status: PipelineStatus; completionBy: string }>;
 
 const storageKey = "nexus-luma-customer-pipeline";
-const statuses: PipelineStatus[] = ["Not yet", "In Process", "Completed"];
+const statuses: PipelineStatus[] = ["Queue", "Work In Process", "Completed"];
 
 export default function Pipeline() {
   const [search, setSearch] = useState("");
@@ -21,8 +21,8 @@ export default function Pipeline() {
   });
 
   const customers = useMemo(() => {
-    return (leadsQuery.data?.leads ?? []).filter(isConvertedCustomer);
-  }, [leadsQuery.data?.leads]);
+    return (leadsQuery.data?.leads ?? []).filter((lead) => isPipelineCustomer(meta, lead));
+  }, [leadsQuery.data?.leads, meta]);
 
   const filtered = customers.filter((customer) => {
     const query = search.toLowerCase();
@@ -45,8 +45,9 @@ export default function Pipeline() {
     setMeta((current) => {
       const next = {
         ...current,
-        [rowNumber]: {
-          status: current[rowNumber]?.status ?? "Not yet",
+          [rowNumber]: {
+          isCustomer: true,
+          status: current[rowNumber]?.status ?? "Queue",
           completionBy: current[rowNumber]?.completionBy ?? "",
           ...patch,
         },
@@ -84,10 +85,10 @@ export default function Pipeline() {
                 <span className="text-sm text-text-secondary">{count.status}</span>
                 {count.status === "Completed" ? (
                   <CheckCircle2 size={16} className="text-status-success" />
-                ) : count.status === "In Process" ? (
+                ) : count.status === "Work In Process" ? (
                   <Clock size={16} className="text-status-warning" />
                 ) : (
-                  <CalendarDays size={16} className="text-status-info" />
+                  <Inbox size={16} className="text-status-info" />
                 )}
               </div>
               <div className="text-[32px] leading-none font-semibold mt-4">{count.value}</div>
@@ -129,8 +130,9 @@ export default function Pipeline() {
                 <th className="px-4 py-4 font-medium">Customer</th>
                 <th className="px-4 py-4 font-medium">Email</th>
                 <th className="px-4 py-4 font-medium">Offer</th>
+                <th className="px-4 py-4 font-medium">Source</th>
                 <th className="px-4 py-4 font-medium">Current status</th>
-                <th className="px-4 py-4 font-medium">Completion by</th>
+                <th className="px-4 py-4 font-medium">Expected due date</th>
                 <th className="px-4 py-4 font-medium">Payment</th>
               </tr>
             </thead>
@@ -145,6 +147,10 @@ export default function Pipeline() {
                     </td>
                     <td className="px-4 py-4 text-text-secondary">{customer.email || "Not Available yet"}</td>
                     <td className="px-4 py-4 text-text-secondary">{customer.offer || customer.product || "Not Available yet"}</td>
+                    <td className="px-4 py-4 text-text-secondary">
+                      <div>{customer.spreadsheetName || customer.sheetOffer || "Not Available yet"}</div>
+                      <div className="text-xs text-text-muted">{customer.sheetName || "Not Available yet"} · Row {customer.sourceRowNumber || "Not Available yet"}</div>
+                    </td>
                     <td className="px-4 py-4">
                       <select
                         value={item.status}
@@ -167,8 +173,8 @@ export default function Pipeline() {
                       />
                     </td>
                     <td className="px-4 py-4">
-                      <span className="badge bg-status-success/15 text-status-success">
-                        Paid{customer.paymentAmount ? ` · $${customer.paymentAmount}` : ""}
+                      <span className={`badge ${isConvertedCustomer(customer) ? "bg-status-success/15 text-status-success" : "bg-status-info/15 text-status-info"}`}>
+                        {isConvertedCustomer(customer) ? `Paid${customer.paymentAmount ? ` · $${customer.paymentAmount}` : ""}` : "Manual customer"}
                       </span>
                     </td>
                   </tr>
@@ -176,8 +182,8 @@ export default function Pipeline() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-text-muted">
-                    {customers.length === 0 ? "Not Available yet. Converted customers will show here after live lead data is connected." : "No converted customers match this view."}
+                  <td colSpan={7} className="px-4 py-12 text-center text-text-muted">
+                    {customers.length === 0 ? "Not Available yet. Mark a lead as Customer from the Leads CRM to add them here." : "No customers match this view."}
                   </td>
                 </tr>
               )}
@@ -193,8 +199,12 @@ function isConvertedCustomer(lead: SheetLead) {
   return lead.purchased || /paid|completed|customer|purchased/i.test(`${lead.paymentStatus} ${lead.status}`);
 }
 
+function isPipelineCustomer(meta: PipelineMeta, lead: SheetLead) {
+  return Boolean(meta[lead.rowNumber]?.isCustomer || isConvertedCustomer(lead));
+}
+
 function pipelineFor(meta: PipelineMeta, customer: SheetLead) {
-  return meta[customer.rowNumber] ?? { status: "Not yet" as const, completionBy: "" };
+  return meta[customer.rowNumber] ?? { isCustomer: isConvertedCustomer(customer), status: "Queue" as const, completionBy: "" };
 }
 
 function loadMeta(): PipelineMeta {
