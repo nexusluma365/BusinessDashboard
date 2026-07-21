@@ -1,4 +1,5 @@
-const apiBaseUrl = process.env.NEXUS_LUMA_API_BASE_URL?.replace(/\/+$/, "");
+const productionApiBaseUrl = "https://syrus-api-production.up.railway.app";
+const apiBaseUrl = (process.env.NEXUS_LUMA_API_BASE_URL || productionApiBaseUrl).replace(/\/+$/, "");
 
 export function hasRemoteApi() {
   return Boolean(apiBaseUrl);

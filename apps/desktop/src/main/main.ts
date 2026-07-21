@@ -1,12 +1,8 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
+import fs from "node:fs";
 import path from "node:path";
-import { connectGoogleAccount, disconnectGoogleAccount, googleAccountStatus } from "./services/googleAuth";
-import { fetchLeadsFromSheet } from "./services/googleSheets";
 import { readSettings, writeSettings } from "./services/localStore";
-import { getAvailableProviders } from "./services/aiProviders";
-import { askSylus, getSylusLiveUpdates, getSylusVoiceStatus, replyToLead } from "./services/sylus";
 import { draftText, openInMessagesApp } from "./services/textDraft";
-import { sendEmailMessages } from "./services/emailSender";
 import { apiGet, apiPost, hasRemoteApi } from "./services/apiClient";
 
 /**
@@ -31,7 +27,17 @@ const USE_VITE_DEV_SERVER = process.env.NEXUS_LUMA_USE_VITE === "true";
 
 let mainWindow: BrowserWindow | null = null;
 
+function writeStartupLog(message: string, error?: unknown) {
+  try {
+    const details = error instanceof Error ? `${error.message}\n${error.stack || ""}` : error ? String(error) : "";
+    fs.appendFileSync(path.join(app.getPath("userData"), "startup.log"), `[${new Date().toISOString()}] ${message}${details ? `\n${details}` : ""}\n`);
+  } catch {
+    // Logging must never prevent the app from opening.
+  }
+}
+
 function createWindow() {
+  writeStartupLog("Creating main window");
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -46,6 +52,7 @@ function createWindow() {
       sandbox: true,
       webSecurity: true,
     },
+    show: false,
   });
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -80,6 +87,31 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+
+  mainWindow.webContents.once("did-finish-load", () => {
+    writeStartupLog("Main window finished loading");
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    writeStartupLog(`Renderer process gone: ${details.reason}`);
+  });
+
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      writeStartupLog("Main window forced visible after timeout");
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 2_000);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -117,13 +149,22 @@ ipcMain.handle("security-key:authenticate", (_event, pin: string) => {
 ipcMain.handle("app:get-version", () => app.getVersion());
 
 // --- Google account (OAuth) ----------------------------------------------
-ipcMain.handle("google:status", () => (hasRemoteApi() ? apiGet("/api/google/status") : googleAccountStatus()));
-ipcMain.handle("google:connect", () =>
-  hasRemoteApi()
-    ? { success: false, reason: "Google is managed by the Railway backend environment for this build." }
-    : connectGoogleAccount()
-);
-ipcMain.handle("google:disconnect", () => disconnectGoogleAccount());
+ipcMain.handle("google:status", async () => {
+  if (hasRemoteApi()) return apiGet("/api/google/status");
+  const { googleAccountStatus } = await import("./services/googleAuth");
+  return googleAccountStatus();
+});
+ipcMain.handle("google:connect", async () => {
+  if (hasRemoteApi()) {
+    return { success: false, reason: "Google is managed by the Railway backend environment for this build." };
+  }
+  const { connectGoogleAccount } = await import("./services/googleAuth");
+  return connectGoogleAccount();
+});
+ipcMain.handle("google:disconnect", async () => {
+  const { disconnectGoogleAccount } = await import("./services/googleAuth");
+  return disconnectGoogleAccount();
+});
 
 // --- App settings (non-sensitive) ----------------------------------------
 ipcMain.handle("settings:get", () => readSettings());
@@ -135,6 +176,10 @@ ipcMain.handle("leads:list", async () => {
     return apiGet("/api/leads");
   }
 
+  const [{ googleAccountStatus }, { fetchLeadsFromSheet }] = await Promise.all([
+    import("./services/googleAuth"),
+    import("./services/googleSheets"),
+  ]);
   const { connected } = await googleAccountStatus();
   const settings = readSettings();
 
@@ -152,20 +197,53 @@ ipcMain.handle("leads:list", async () => {
 });
 
 // --- AI providers (Anthropic + OpenAI only) -------------------------------
-ipcMain.handle("ai:providers", () => (hasRemoteApi() ? apiGet("/api/ai/providers") : getAvailableProviders()));
-ipcMain.handle("sylus:ask", (_event, question: string) => (hasRemoteApi() ? apiPost("/api/syrus/ask", { question }) : askSylus(question)));
-ipcMain.handle("sylus:live-updates", () => (hasRemoteApi() ? apiGet("/api/syrus/live-updates") : getSylusLiveUpdates()));
-ipcMain.handle("sylus:voice-status", () => (hasRemoteApi() ? apiGet("/api/syrus/voice-status") : getSylusVoiceStatus()));
-ipcMain.handle("lead-assistant:reply", (_event, input) => (hasRemoteApi() ? apiPost("/api/lead-assistant/reply", input) : replyToLead(input)));
+ipcMain.handle("ai:providers", async () => {
+  if (hasRemoteApi()) return apiGet("/api/ai/providers");
+  const { getAvailableProviders } = await import("./services/aiProviders");
+  return getAvailableProviders();
+});
+ipcMain.handle("sylus:ask", async (_event, question: string) => {
+  if (hasRemoteApi()) return apiPost("/api/syrus/ask", { question });
+  const { askSylus } = await import("./services/sylus");
+  return askSylus(question);
+});
+ipcMain.handle("sylus:live-updates", async () => {
+  if (hasRemoteApi()) return apiGet("/api/syrus/live-updates");
+  const { getSylusLiveUpdates } = await import("./services/sylus");
+  return getSylusLiveUpdates();
+});
+ipcMain.handle("sylus:voice-status", async () => {
+  if (hasRemoteApi()) return apiGet("/api/syrus/voice-status");
+  const { getSylusVoiceStatus } = await import("./services/sylus");
+  return getSylusVoiceStatus();
+});
+ipcMain.handle("lead-assistant:reply", async (_event, input) => {
+  if (hasRemoteApi()) return apiPost("/api/lead-assistant/reply", input);
+  const { replyToLead } = await import("./services/sylus");
+  return replyToLead(input);
+});
 
 // --- Text drafting (no telephony provider — human sends manually) --------
 ipcMain.handle("texting:draft", (_event, input) => draftText(input));
 ipcMain.handle("texting:open", (_event, phone: string, body: string) => openInMessagesApp(phone, body));
 
 // --- Email sending (Gmail API through the connected Google account) -------
-ipcMain.handle("email:send", (_event, input) => (hasRemoteApi() ? apiPost("/api/email/send", input) : sendEmailMessages(input)));
+ipcMain.handle("email:send", async (_event, input) => {
+  if (hasRemoteApi()) return apiPost("/api/email/send", input);
+  const { sendEmailMessages } = await import("./services/emailSender");
+  return sendEmailMessages(input);
+});
 
-app.whenReady().then(createWindow);
+process.on("uncaughtException", (error) => writeStartupLog("Uncaught exception", error));
+process.on("unhandledRejection", (error) => writeStartupLog("Unhandled rejection", error));
+
+app.whenReady()
+  .then(() => {
+    if (process.platform === "darwin") app.setActivationPolicy("regular");
+    writeStartupLog("App ready");
+    createWindow();
+  })
+  .catch((error) => writeStartupLog("App failed before ready", error));
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

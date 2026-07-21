@@ -13,13 +13,14 @@
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run",
     "dist:mac": "pnpm build && electron-builder --mac --universal",
+    "dist:mac:dir": "pnpm build && electron-builder --mac --universal --dir",
     "dist:win": "pnpm build && electron-builder --win nsis",
     "dist:all": "pnpm build && electron-builder --mac --universal --win nsis"
   },
   "build": {
     "appId": "com.nexusluma.syrus",
     "productName": "SYRUS",
-    "files": ["dist/**", "dist-electron/**"],
+    "files": ["package.json", "dist/**", "dist-electron/**"],
     "extraMetadata": {
       "name": "syrus"
     },
@@ -28,7 +29,7 @@
       "category": "public.app-category.business",
       "icon": "build/icon-source.png",
       "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }],
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "win": {

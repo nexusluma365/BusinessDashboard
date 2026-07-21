@@ -37,7 +37,7 @@ export type SheetLead = {
  * "FirstName" all resolve the same way. Users don't need to rename their
  * existing columns to match this app.
  */
-const HEADER_ALIASES: Record<keyof Omit<SheetLead, "rowNumber" | "fullName" | "purchased" | "raw" | "sheetOffer" | "sheetName" | "spreadsheetId" | "sourceRowNumber"> | "fullName", string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<SheetLead, "rowNumber" | "fullName" | "purchased" | "raw" | "sheetOffer" | "sheetName" | "spreadsheetId" | "spreadsheetName" | "sourceRowNumber"> | "fullName", string[]> = {
   firstName: ["first name", "firstname", "first"],
   lastName: ["last name", "lastname", "last"],
   fullName: ["name", "full name", "customer name", "lead name"],
@@ -144,7 +144,7 @@ async function fetchOneSheet(
   config: LeadSheetConfig,
   sheetIndex: number
 ) {
-  const range = `${config.sheetName || "Sheet1"}`;
+  const range = sheetRange(config.sheetName || "Sheet1");
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.spreadsheetId,
     range,
@@ -203,6 +203,10 @@ async function fetchOneSheet(
     });
 
   return { leads, columnsFound: Object.keys(columnIndex) };
+}
+
+function sheetRange(sheetName: string) {
+  return `'${sheetName.replace(/'/g, "''")}'`;
 }
 
 export function normalizeLeadSheets(

@@ -1,5 +1,5 @@
 import { shell } from "electron";
-import { getActiveProvider, type ChatMessage } from "./aiProviders";
+import type { ChatMessage } from "./aiProviders";
 
 /**
  * Nexus Luma never sends SMS itself — there's no Twilio/Telnyx/Plivo in
@@ -41,6 +41,7 @@ export async function draftText(input: {
   instruction: string;
   history: ChatMessage[];
 }): Promise<{ draft: string } | { error: string }> {
+  const { getActiveProvider } = await import("./aiProviders");
   const provider = getActiveProvider();
   if (!provider) {
     return { error: "No AI provider configured. Add ANTHROPIC_API_KEY or OPENAI_API_KEY." };
