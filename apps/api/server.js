@@ -109,15 +109,37 @@ async function ownerOAuthIdentity() {
     return { configured: false, email: null, error: "OAuth access token is Not Available yet." };
   }
 
-  const response = await fetch("https://www.googleapis.com/oauth2/v1/userinfo?alt=json", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    return { configured: true, email: null, error: await response.text() };
+  const [userResponse, tokenResponse] = await Promise.all([
+    fetch("https://www.googleapis.com/oauth2/v1/userinfo?alt=json", {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+    fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`),
+  ]);
+
+  const tokenInfo = tokenResponse.ok ? await tokenResponse.json() : null;
+  const grantedScopes = String(tokenInfo?.scope || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort();
+
+  if (!userResponse.ok) {
+    return {
+      configured: true,
+      email: null,
+      scopes: grantedScopes,
+      error: await userResponse.text(),
+    };
   }
 
-  const payload = await response.json();
-  return { configured: true, email: payload.email || null, verifiedEmail: Boolean(payload.verified_email) };
+  const payload = await userResponse.json();
+  return {
+    configured: true,
+    email: payload.email || null,
+    verifiedEmail: Boolean(payload.verified_email),
+    scopes: grantedScopes,
+    hasSheetsReadonly: grantedScopes.includes("https://www.googleapis.com/auth/spreadsheets.readonly"),
+    hasGmailSend: grantedScopes.includes("https://www.googleapis.com/auth/gmail.send"),
+  };
 }
 
 async function listLeads() {
