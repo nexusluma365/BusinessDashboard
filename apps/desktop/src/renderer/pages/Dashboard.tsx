@@ -12,12 +12,12 @@ export default function Dashboard() {
   const leadsQuery = useQuery({
     queryKey: ["leads"],
     queryFn: () => window.nexusLuma.leads.list(),
-    refetchInterval: 60_000,
+    refetchInterval: 900_000,
   });
 
   const leads = leadsQuery.data?.leads ?? [];
   const stats = useMemo(() => buildStats(leads), [leads]);
-  const hasLiveData = leadsQuery.data?.source === "google_sheets" && leads.length > 0;
+  const hasLiveData = isLiveLeadSource(leadsQuery.data?.source) && leads.length > 0;
 
   const summaryCards = [
     { label: "New Leads", value: hasLiveData ? String(stats.newLeads) : unavailable, icon: Heart, featured: true },
@@ -31,7 +31,7 @@ export default function Dashboard() {
       <Header
         title="Dashboard"
         subtitle={
-          leadsQuery.data?.source === "google_sheets"
+          isLiveLeadSource(leadsQuery.data?.source)
             ? `${leads.length} live leads synced from Google Sheets`
             : leadsQuery.data?.source === "error"
               ? `Not Available yet — ${leadsQuery.data.error}`
@@ -260,4 +260,8 @@ function UnavailablePanel() {
       {unavailable}
     </div>
   );
+}
+
+function isLiveLeadSource(source?: string) {
+  return source === "google_sheets" || source === "webhook_google_sheets" || source === "webhook";
 }

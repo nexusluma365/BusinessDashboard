@@ -30,7 +30,7 @@ export type SheetLead = {
 };
 
 export type LeadsResult = {
-  source: "google_sheets" | "not_configured" | "error";
+  source: "google_sheets" | "webhook_google_sheets" | "webhook" | "not_configured" | "error";
   leads: SheetLead[];
   columnsMissing?: string[];
   sheetErrors?: Array<{ offer: string; spreadsheetName?: string; spreadsheetId: string; sheetName: string; error: string }>;

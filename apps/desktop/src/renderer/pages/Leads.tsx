@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, RefreshCw, Link2, CheckCircle2, Circle, ExternalLink } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Search, RefreshCw, Link2, CheckCircle2, Circle, ExternalLink, Mail, MessageSquareText } from "lucide-react";
 import Header from "@/components/Header";
-import type { LeadSheetConfig } from "@/lib/bridge";
+import type { LeadSheetConfig, SheetLead } from "@/lib/bridge";
 
 const defaultLeadSheets: LeadSheetConfig[] = [
   { offer: "Web Design", spreadsheetName: "Nexus Luma INQ", spreadsheetId: "", sheetName: "Appointment Booking" },
@@ -12,8 +13,10 @@ const defaultLeadSheets: LeadSheetConfig[] = [
 
 export default function Leads() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [offerFilter, setOfferFilter] = useState<string>("All");
+  const [selectedRows, setSelectedRows] = useState<number[]>([]);
   const [leadSheetsInput, setLeadSheetsInput] = useState<LeadSheetConfig[]>(defaultLeadSheets);
 
   const googleStatus = useQuery({
@@ -42,7 +45,7 @@ export default function Leads() {
   const leadsQuery = useQuery({
     queryKey: ["leads"],
     queryFn: () => window.nexusLuma.leads.list(),
-    refetchInterval: 60_000,
+    refetchInterval: 900_000,
   });
 
   const leads = leadsQuery.data?.leads ?? [];
@@ -58,6 +61,13 @@ export default function Leads() {
       l.businessName.toLowerCase().includes(q);
     return matchesOffer && matchesSearch;
   });
+  const filteredRows = useMemo(() => new Set(filtered.map((lead) => lead.rowNumber)), [filtered]);
+  const selectedRowSet = useMemo(() => new Set(selectedRows), [selectedRows]);
+  const selectedLeads = useMemo(() => leads.filter((lead) => selectedRowSet.has(lead.rowNumber)), [leads, selectedRowSet]);
+  const selectableFiltered = filtered.filter((lead) => lead.email || lead.phone);
+  const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((lead) => selectedRowSet.has(lead.rowNumber));
+  const selectedWithEmail = selectedLeads.filter((lead) => isEmail(lead.email));
+  const selectedWithPhone = selectedLeads.filter((lead) => lead.phone.trim());
 
   const purchasedCount = leads.filter((l) => l.purchased).length;
 
@@ -99,9 +109,9 @@ export default function Leads() {
   return (
     <div className="premium-page flex flex-col h-full">
       <Header
-        title="Order list"
+        title="Leads CRM"
         subtitle={
-          leadsQuery.data?.source === "google_sheets"
+          isLiveLeadSource(leadsQuery.data?.source)
             ? `${leads.length} leads · ${purchasedCount} purchased · synced from Google Sheets`
             : leadsQuery.data?.source === "not_configured"
               ? "Not Available yet — connect Google Sheets below to see real leads"
@@ -118,7 +128,7 @@ export default function Leads() {
               <div className={`${card.color} h-9 px-4 flex items-center text-[#151218] text-sm font-medium`}>{card.label}</div>
               <div className="px-4 py-4 flex items-end gap-4">
                 <span className="text-[30px] leading-none font-semibold">{card.value}</span>
-                <span className="badge bg-status-success/20 text-status-success text-[11px] mb-0.5">↑ 2.67%</span>
+                <span className="text-[11px] text-text-muted mb-0.5">live</span>
               </div>
             </div>
           ))}
@@ -223,12 +233,38 @@ export default function Leads() {
           </select>
 
           <button
-            onClick={() => leadsQuery.refetch()}
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["leads"] });
+              leadsQuery.refetch();
+            }}
             className="flex items-center gap-2 premium-input rounded-card px-4 h-12 text-sm hover:bg-bg-panelHover transition-colors"
           >
             <RefreshCw size={14} className={leadsQuery.isFetching ? "animate-spin" : ""} />
             Refresh
           </button>
+
+          {selectedRows.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-bg-panel px-3 py-2">
+              <span className="text-xs text-text-secondary">{selectedRows.length} selected</span>
+              <button
+                onClick={() => openEmailForRows(selectedWithEmail)}
+                disabled={selectedWithEmail.length === 0}
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-accent-gold px-3 text-xs font-semibold text-white shadow-glow transition hover:opacity-95 disabled:cursor-not-allowed disabled:bg-bg-panelHover disabled:text-text-muted disabled:shadow-none"
+              >
+                <Mail size={13} /> Email selected
+              </button>
+              <button
+                onClick={() => openTextForLead(selectedWithPhone[0])}
+                disabled={selectedWithPhone.length === 0}
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-secondary px-3 text-xs font-medium text-text-secondary transition hover:bg-bg-panelHover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <MessageSquareText size={13} /> Text first phone
+              </button>
+              <button onClick={() => setSelectedRows([])} className="h-8 rounded-lg px-2 text-xs text-text-muted hover:text-text-primary">
+                Clear
+              </button>
+            </div>
+          )}
 
           <span className="text-xs text-text-muted ml-auto">{filtered.length} shown</span>
         </div>
@@ -238,7 +274,13 @@ export default function Leads() {
             <thead>
               <tr className="text-left text-xs text-text-muted bg-bg-panel">
                 <th className="px-4 py-4 font-medium w-10">
-                  <input type="checkbox" className="accent-status-info" />
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleFilteredSelection}
+                    className="accent-status-info"
+                    aria-label="Select all filtered leads"
+                  />
                 </th>
                 <th className="px-4 py-3 font-medium">Lead</th>
                 <th className="px-4 py-3 font-medium">Offer</th>
@@ -246,13 +288,20 @@ export default function Leads() {
                 <th className="px-4 py-3 font-medium">Source</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Purchased</th>
+                <th className="px-4 py-3 font-medium">Work</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((lead) => (
-                <tr key={lead.rowNumber} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
+                <tr key={leadKey(lead)} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
                   <td className="px-4 py-4">
-                    <input type="checkbox" className="accent-status-info" />
+                    <input
+                      type="checkbox"
+                      checked={selectedRowSet.has(lead.rowNumber)}
+                      onChange={() => toggleLead(lead.rowNumber)}
+                      className="accent-status-info"
+                      aria-label={`Select ${lead.fullName || lead.email || "lead"}`}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-medium">{lead.fullName || "Not Available yet"}</div>
@@ -263,7 +312,12 @@ export default function Leads() {
                     <div>{lead.email || "Not Available yet"}</div>
                     <div className="text-xs text-text-muted">{lead.phone || "Not Available yet"}</div>
                   </td>
-                  <td className="px-4 py-3 text-text-secondary">{lead.source || "Not Available yet"}</td>
+                  <td className="px-4 py-3 text-text-secondary">
+                    <div>{lead.spreadsheetName || lead.sheetOffer || lead.offer || "Not Available yet"}</div>
+                    <div className="text-xs text-text-muted">
+                      {lead.sheetName || "Not Available yet"} · Row {lead.sourceRowNumber || "Not Available yet"}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     {lead.status ? (
                       <span className="badge bg-[#242034] text-[#ffe58c]">{lead.status}</span>
@@ -282,11 +336,31 @@ export default function Leads() {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => openEmailForLead(lead)}
+                        disabled={!isEmail(lead.email)}
+                        className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-panel px-2.5 text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        title={isEmail(lead.email) ? "Email this lead" : "No email on file"}
+                      >
+                        <Mail size={13} /> Email
+                      </button>
+                      <button
+                        onClick={() => openTextForLead(lead)}
+                        disabled={!lead.phone.trim()}
+                        className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-panel px-2.5 text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        title={lead.phone.trim() ? "Text this lead" : "No phone on file"}
+                      >
+                        <MessageSquareText size={13} /> Text
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-text-muted text-sm">
+                  <td colSpan={8} className="px-4 py-10 text-center text-text-muted text-sm">
                     {leads.length === 0 ? "Not Available yet. Connect Google Sheets to load live leads." : "No leads match your filters."}
                   </td>
                 </tr>
@@ -295,7 +369,7 @@ export default function Leads() {
           </table>
         </div>
 
-        {leadsQuery.data?.source === "google_sheets" && configuredLeadSheets.length > 0 && (
+        {isLiveLeadSource(leadsQuery.data?.source) && configuredLeadSheets.length > 0 && (
           <div className="flex flex-wrap gap-3">
             {configuredLeadSheets.map((sheet) => (
               <a
@@ -317,6 +391,37 @@ export default function Leads() {
   function updateLeadSheetInput(index: number, patch: Partial<LeadSheetConfig>) {
     setLeadSheetsInput((current) => current.map((sheet, itemIndex) => (itemIndex === index ? { ...sheet, ...patch } : sheet)));
   }
+
+  function toggleLead(rowNumber: number) {
+    setSelectedRows((current) =>
+      current.includes(rowNumber) ? current.filter((row) => row !== rowNumber) : [...current, rowNumber]
+    );
+  }
+
+  function toggleFilteredSelection() {
+    const rows = selectableFiltered.map((lead) => lead.rowNumber);
+    if (allFilteredSelected) {
+      setSelectedRows((current) => current.filter((row) => !filteredRows.has(row)));
+      return;
+    }
+    setSelectedRows((current) => Array.from(new Set([...current, ...rows])));
+  }
+
+  function openEmailForLead(lead: SheetLead) {
+    if (!isEmail(lead.email)) return;
+    navigate(`/email-studio?lead=${lead.rowNumber}&mode=preview`);
+  }
+
+  function openEmailForRows(rows: SheetLead[]) {
+    const rowNumbers = rows.map((lead) => lead.rowNumber);
+    if (!rowNumbers.length) return;
+    navigate(`/email-studio?rows=${rowNumbers.join(",")}&lead=${rowNumbers[0]}&mode=selected`);
+  }
+
+  function openTextForLead(lead?: SheetLead) {
+    if (!lead?.phone.trim()) return;
+    navigate(`/conversations?lead=${lead.rowNumber}`);
+  }
 }
 
 function mergeLeadSheets(saved: LeadSheetConfig[]) {
@@ -331,4 +436,16 @@ function defaultSpreadsheetName(offer: string) {
   if (offer === "High Income Skills" || offer === "Digital Products") return "High Income Skills";
   if (offer === "Credit Repair") return "The Credit Project";
   return offer || "Not Available yet";
+}
+
+function leadKey(lead: SheetLead) {
+  return [lead.spreadsheetId, lead.sheetName, lead.sourceRowNumber, lead.rowNumber].filter(Boolean).join(":");
+}
+
+function isEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function isLiveLeadSource(source?: string) {
+  return source === "google_sheets" || source === "webhook_google_sheets" || source === "webhook";
 }

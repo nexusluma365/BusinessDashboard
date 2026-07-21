@@ -36,7 +36,7 @@ export default function SylusPanel() {
     queryKey: ["sylus-live-updates"],
     queryFn: () => window.nexusLuma.sylus.liveUpdates(),
     enabled: open,
-    refetchInterval: open ? 60_000 : false,
+    refetchInterval: open ? 900_000 : false,
   });
   const voiceStatus = useQuery({
     queryKey: ["sylus-voice-status"],

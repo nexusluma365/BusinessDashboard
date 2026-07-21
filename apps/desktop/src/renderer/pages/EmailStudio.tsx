@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   Check,
   Copy,
@@ -76,6 +77,7 @@ type SendResult = { email: string; status: "sent" | "error"; message?: string };
 
 export default function EmailStudio() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [templates, setTemplates] = useState<EmailTemplate[]>(() => loadTemplates());
   const [activeId, setActiveId] = useState(templates[0]?.id ?? basePreset.id);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(templates[0]?.blocks[1]?.id ?? null);
@@ -124,6 +126,27 @@ export default function EmailStudio() {
   );
   const validRecipientCount = useMemo(() => recipients.filter((recipient) => isEmail(recipient.email)).length, [recipients]);
   const canSend = Boolean(googleStatus.data?.connected && validRecipientCount > 0 && !sending);
+
+  useEffect(() => {
+    if (!leads.length) return;
+
+    const leadRow = Number(searchParams.get("lead") || "");
+    const rows = parseRowsParam(searchParams.get("rows"));
+    const mode = searchParams.get("mode") as SendMode | null;
+
+    if (rows.length) {
+      setSelectedRows(rows);
+      setSendMode("selected");
+    }
+
+    if (Number.isFinite(leadRow) && leads.some((lead) => lead.rowNumber === leadRow)) {
+      setSelectedLeadId(leadRow);
+    }
+
+    if (mode && ["preview", "selected", "filtered", "manual"].includes(mode)) {
+      setSendMode(mode);
+    }
+  }, [leads, searchParams]);
 
   function updateTemplate(patch: Partial<EmailTemplate>) {
     setTemplates((current) => persist(current.map((template) => (template.id === activeTemplate.id ? { ...template, ...patch } : template))));
@@ -657,6 +680,13 @@ function parseRecipientInput(value: string) {
     .split(/[\n,;]+/)
     .map((email) => email.trim().toLowerCase())
     .filter((email, index, list) => email && list.indexOf(email) === index);
+}
+
+function parseRowsParam(value: string | null) {
+  return (value || "")
+    .split(",")
+    .map((row) => Number(row.trim()))
+    .filter((row, index, rows) => Number.isFinite(row) && rows.indexOf(row) === index);
 }
 
 function isEmail(value: string) {

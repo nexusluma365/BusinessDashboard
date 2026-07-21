@@ -166,7 +166,7 @@ async function listLeads() {
       : []
   );
   const sheetLeads = fulfilled.flatMap((result) => result.leads);
-  const leads = mergeLeads([...webhookLeads, ...sheetLeads]);
+  const leads = mergeLeads([...webhookLeads, ...sheetLeads]).filter(isWorkableLead);
   const columnsFound = Array.from(new Set(fulfilled.flatMap((result) => result.columnsFound)));
   const columnsMissing = Object.keys(headerAliases).filter((key) => !columnsFound.includes(key));
   const scanSources = Array.from(new Set(fulfilled.map((result) => result.source)));
@@ -271,6 +271,16 @@ function mergeLeads(leads) {
     merged.set(key, { ...lead, id: key });
   }
   return Array.from(merged.values()).sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
+}
+
+function isWorkableLead(lead) {
+  return Boolean(
+    String(lead.fullName || "").trim() ||
+      String(lead.email || "").trim() ||
+      String(lead.phone || "").trim() ||
+      String(lead.businessName || "").trim() ||
+      lead.purchased
+  );
 }
 
 async function readWebhookLeads() {
@@ -414,7 +424,8 @@ function rowsToLeads(rows, config, sheetIndex, source) {
   const columnIndex = buildColumnIndex(headerRow);
   const leads = dataRows
     .filter((row) => row.some((value) => String(value || "").trim()))
-    .map((row, index) => mapLead(headerRow, row, columnIndex, index, config, sheetIndex));
+    .map((row, index) => mapLead(headerRow, row, columnIndex, index, config, sheetIndex))
+    .filter(isWorkableLead);
 
   const columnsFound = Object.keys(columnIndex);
   return { offer: config.offer, spreadsheetName: config.spreadsheetName, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: dataRows.length, leads, columnsFound };

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Bot, Check, Copy, ExternalLink, MessageSquareText, Phone, Search, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Bot, Check, Copy, ExternalLink, Mail, MessageSquareText, Phone, RefreshCw, Search, Send, ShieldCheck, Sparkles } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
 
@@ -8,6 +9,9 @@ type ChatMessage = { role: "user" | "assistant"; content: string; timestamp: str
 type ThreadMap = Record<number, ChatMessage[]>;
 
 export default function Conversations() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [input, setInput] = useState("");
@@ -18,18 +22,26 @@ export default function Conversations() {
   const leadsQuery = useQuery({
     queryKey: ["leads"],
     queryFn: () => window.nexusLuma.leads.list(),
+    refetchInterval: 900_000,
   });
 
   const leads = leadsQuery.data?.leads ?? [];
-  const textableLeads = leads.filter((lead) => lead.phone.trim());
-  const filtered = textableLeads.filter((l) => {
+  const workableLeads = leads.filter((lead) => lead.phone.trim() || lead.email.trim());
+  const filtered = workableLeads.filter((l) => {
     const q = search.toLowerCase();
-    return !q || l.fullName.toLowerCase().includes(q) || l.phone.includes(q) || l.offer.toLowerCase().includes(q);
+    return !q || l.fullName.toLowerCase().includes(q) || l.phone.includes(q) || l.email.toLowerCase().includes(q) || l.offer.toLowerCase().includes(q);
   });
-  const selected = textableLeads.find((lead) => lead.rowNumber === selectedRow) ?? filtered[0] ?? null;
+  const selected = workableLeads.find((lead) => lead.rowNumber === selectedRow) ?? filtered[0] ?? null;
   const activeThread = selected ? threads[selected.rowNumber] ?? [] : [];
   const latestDraft = [...activeThread].reverse().find((m) => m.role === "assistant")?.content ?? "";
-  const recentLeads = useMemo(() => textableLeads.slice(0, 7), [textableLeads]);
+  const recentLeads = useMemo(() => workableLeads.slice(0, 7), [workableLeads]);
+
+  useEffect(() => {
+    const leadRow = Number(searchParams.get("lead") || "");
+    if (Number.isFinite(leadRow) && workableLeads.some((lead) => lead.rowNumber === leadRow)) {
+      setSelectedRow(leadRow);
+    }
+  }, [searchParams, workableLeads]);
 
   useEffect(() => {
     if (!selectedRow && filtered[0]) {
@@ -91,13 +103,23 @@ export default function Conversations() {
   }
 
   async function openInMessages() {
-    if (!selected) return;
+    if (!selected?.phone.trim()) return;
     await window.nexusLuma.texting.open(selected.phone, latestDraft);
+  }
+
+  function openEmailStudio() {
+    if (!selected?.email.trim()) return;
+    navigate(`/email-studio?lead=${selected.rowNumber}&mode=preview`);
+  }
+
+  function refreshLeads() {
+    queryClient.invalidateQueries({ queryKey: ["leads"] });
+    leadsQuery.refetch();
   }
 
   return (
     <div className="premium-page flex flex-col h-full">
-      <Header title="Conversations" subtitle="Lead and customer text conversations with SYRUS customer-safe replies." />
+      <Header title="Conversations" subtitle="Lead and customer messages with SYRUS customer-safe drafts and email fallback." />
 
       <div className="flex-1 grid grid-cols-[340px_1fr] overflow-hidden">
         <aside className="border-r border-border-subtle flex flex-col overflow-hidden bg-bg-secondary/60 backdrop-blur-xl">
@@ -111,6 +133,13 @@ export default function Conversations() {
                 className="bg-transparent outline-none text-sm placeholder:text-text-muted w-full"
               />
             </div>
+            <button
+              onClick={refreshLeads}
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-card border border-border bg-bg-panel text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-text-primary"
+            >
+              <RefreshCw size={13} className={leadsQuery.isFetching ? "animate-spin" : ""} />
+              Refresh leads
+            </button>
 
             <div>
               <div className="text-xs font-medium text-text-secondary mb-3">Recent Chat</div>
@@ -149,12 +178,14 @@ export default function Conversations() {
                       <span className="text-[11px] opacity-60">{threadAge(threads[lead.rowNumber])}</span>
                     </div>
                     <div className="text-xs opacity-70 truncate mt-1">{latestPreview(threads[lead.rowNumber]) || lead.offer || "Not Available yet"}</div>
-                    <div className="text-[11px] opacity-60 truncate mt-1">{lead.phone || "Not Available yet"}</div>
+                    <div className="text-[11px] opacity-60 truncate mt-1">
+                      {lead.phone ? `SMS: ${lead.phone}` : lead.email ? `Email: ${lead.email}` : "Not Available yet"}
+                    </div>
                   </div>
                 </div>
               </button>
             ))}
-            {filtered.length === 0 && <p className="p-4 text-sm text-text-muted">Not Available yet. Leads with phone numbers will show here after live data is connected.</p>}
+            {filtered.length === 0 && <p className="p-4 text-sm text-text-muted">Not Available yet. Leads with phone numbers or emails will show here after live data is connected.</p>}
           </div>
         </aside>
 
@@ -176,7 +207,9 @@ export default function Conversations() {
                       <span className="font-semibold text-sm">{selected.fullName || "Unnamed lead"}</span>
                       <span className="text-[11px] text-status-success">online</span>
                     </div>
-                    <div className="text-xs text-text-muted">{selected.phone || "Not Available yet"} · {selected.offer || "Not Available yet"}</div>
+                    <div className="text-xs text-text-muted">
+                      {selected.phone || selected.email || "Not Available yet"} · {selected.offer || "Not Available yet"}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -187,16 +220,25 @@ export default function Conversations() {
                   <button
                     onClick={() => generateReply("Draft a friendly opening text to this lead based on their interest.")}
                     className="w-9 h-9 bg-bg-panel border border-border rounded-card flex items-center justify-center hover:bg-bg-panelHover"
-                    title="Draft opener"
+                    title={selected.phone ? "Draft opener" : "Draft email-safe opener"}
                   >
                     <Sparkles size={15} />
                   </button>
                   <button
                     onClick={() => selected && window.nexusLuma.texting.open(selected.phone, "")}
+                    disabled={!selected.phone.trim()}
                     className="w-9 h-9 bg-bg-panel border border-border rounded-card flex items-center justify-center hover:bg-bg-panelHover"
                     title="Open phone"
                   >
                     <Phone size={15} />
+                  </button>
+                  <button
+                    onClick={openEmailStudio}
+                    disabled={!selected.email.trim()}
+                    className="w-9 h-9 bg-bg-panel border border-border rounded-card flex items-center justify-center hover:bg-bg-panelHover disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Open Email Studio"
+                  >
+                    <Mail size={15} />
                   </button>
                 </div>
               </div>
@@ -209,9 +251,17 @@ export default function Conversations() {
                       SYRUS Customer Text
                     </div>
                     <p className="text-sm text-text-secondary mt-2">
-                      Type the lead's question or ask SYRUS to draft an outgoing text. Replies use only customer-safe
+                      Type the lead's question or ask SYRUS to draft an outgoing message. Replies use only customer-safe
                       context for this lead.
                     </p>
+                    {!selected.phone && selected.email && (
+                      <button
+                        onClick={openEmailStudio}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent-gold px-3 py-2 text-xs font-semibold text-white shadow-glow"
+                      >
+                        <Mail size={13} /> Continue by email
+                      </button>
+                    )}
                   </div>
                 )}
                 {activeThread.map((m, i) => (
@@ -246,6 +296,14 @@ export default function Conversations() {
                   >
                     <ExternalLink size={13} /> Open in Messages
                   </button>
+                  {!selected.phone && selected.email && (
+                    <button
+                      onClick={openEmailStudio}
+                      className="flex items-center gap-1.5 text-xs bg-accent-gold text-bg-primary font-medium rounded-lg px-3 py-2 hover:brightness-110 transition"
+                    >
+                      <Mail size={13} /> Use Email Studio
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -253,7 +311,7 @@ export default function Conversations() {
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={`Message ${selected.fullName || "this lead"}...`}
+                  placeholder={`Draft for ${selected.fullName || "this lead"}...`}
                   className="flex-1 bg-bg-panel border border-border rounded-full px-3 py-2 text-sm outline-none focus:border-accent-gold"
                 />
                 <button type="submit" className="p-2 rounded-full bg-accent-gold text-bg-primary hover:brightness-110 transition">
