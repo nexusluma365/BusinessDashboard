@@ -322,7 +322,12 @@ async function listOneSheetWithFallback(config, sheetIndex, methods) {
   const configMethods = config.scriptUrl ? [{ name: "apps_script", read: listOneSheetAppsScript }, ...methods] : methods;
   for (const method of configMethods) {
     try {
-      return await method.read(config, sheetIndex);
+      const result = await method.read(config, sheetIndex);
+      if (result.rows === 0 && method !== configMethods[configMethods.length - 1]) {
+        errors.push(`${method.name}: returned no sheet rows`);
+        continue;
+      }
+      return result;
     } catch (error) {
       errors.push(`${method.name}: ${error instanceof Error ? error.message : String(error)}`);
     }
