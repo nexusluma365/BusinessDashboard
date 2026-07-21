@@ -17,24 +17,26 @@ const jsonHeaders = {
 const headerAliases = {
   firstName: ["first name", "firstname", "first"],
   lastName: ["last name", "lastname", "last"],
-  email: ["email", "email address"],
+  fullName: ["name", "full name", "customer name", "lead name"],
+  email: ["email", "email address", "lead email"],
   phone: ["phone", "phone number", "mobile"],
   businessName: ["business name", "business", "company"],
-  website: ["website", "site", "url"],
+  website: ["website", "site", "url", "page url", "last page"],
   offer: ["offer"],
-  product: ["product", "product purchased", "product viewed"],
+  product: ["product", "product purchased", "product viewed", "product name", "download product"],
   source: ["source", "lead source", "traffic source"],
-  campaign: ["campaign", "google ads campaign"],
+  campaign: ["campaign", "google ads campaign", "utm campaign", "utm_campaign"],
   utmSource: ["utm source", "utm_source"],
   utmMedium: ["utm medium", "utm_medium"],
-  submittedAt: ["submitted at", "submission date", "date", "created", "timestamp"],
+  submittedAt: ["submitted at", "submission date", "date", "created", "created at", "first seen", "timestamp"],
   paymentAmount: ["payment amount", "amount", "price", "order total"],
-  paymentStatus: ["payment status", "order status"],
-  status: ["status", "lead status", "pipeline status", "current status"],
+  paymentStatus: ["payment status", "order status", "payment successful at"],
+  status: ["status", "lead status", "pipeline status", "current status", "event type", "last event"],
   notes: ["notes", "note", "internal notes"],
 };
-const purchasedAliases = ["purchased", "customer", "has purchased", "paid"];
+const purchasedAliases = ["purchased", "customer", "has purchased", "paid", "payment successful at"];
 const truthy = new Set(["yes", "y", "true", "1", "paid", "customer", "purchased", "completed", "won"]);
+const paidSignals = ["paid", "purchased", "succeeded", "success", "completed", "complete", "payment_successful"];
 
 http
   .createServer(async (req, res) => {
@@ -64,23 +66,25 @@ http
   });
 
 function googleStatus() {
+  const configs = leadSheetConfigs();
+  const methods = googleReadMethods();
   return {
-    configured: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && leadSheetConfigs().length),
-    connected: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && leadSheetConfigs().length),
+    configured: Boolean(configs.length),
+    connected: Boolean(configs.length && methods.length),
+    methods: methods.map((method) => method.name),
+    sheets: configs.map((sheet) => ({ offer: sheet.offer, spreadsheetId: sheet.spreadsheetId, sheetName: sheet.sheetName })),
   };
 }
 
 async function listLeads() {
   const webhookLeads = await readWebhookLeads();
-  if (!googleStatus().connected) {
+  const configs = leadSheetConfigs();
+  if (!configs.length) {
     return { source: webhookLeads.length ? "webhook" : "not_configured", leads: webhookLeads, columnsMissing: [] };
   }
 
-  const auth = google.auth.fromJSON(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
-  auth.scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"];
-  const sheets = google.sheets({ version: "v4", auth });
-  const configs = leadSheetConfigs();
-  const results = await Promise.allSettled(configs.map((config, index) => listOneSheet(sheets, config, index)));
+  const methods = googleReadMethods();
+  const results = await Promise.allSettled(configs.map((config, index) => listOneSheetWithFallback(config, index, methods)));
   const fulfilled = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
   const sheetErrors = results.flatMap((result, index) =>
     result.status === "rejected"
@@ -98,7 +102,23 @@ async function listLeads() {
   const leads = mergeLeads([...webhookLeads, ...sheetLeads]);
   const columnsFound = Array.from(new Set(fulfilled.flatMap((result) => result.columnsFound)));
   const columnsMissing = Object.keys(headerAliases).filter((key) => !columnsFound.includes(key));
-  return { source: webhookLeads.length ? "webhook_google_sheets" : "google_sheets", leads, columnsFound, columnsMissing, sheetErrors };
+  const scanSources = Array.from(new Set(fulfilled.map((result) => result.source)));
+  return {
+    source: webhookLeads.length ? "webhook_google_sheets" : "google_sheets",
+    leads,
+    columnsFound,
+    columnsMissing,
+    sheetErrors,
+    scanSources,
+    sheetResults: fulfilled.map((result) => ({
+      offer: result.offer,
+      sheetName: result.sheetName,
+      spreadsheetId: result.spreadsheetId,
+      source: result.source,
+      rows: result.rows,
+      leads: result.leads.length,
+    })),
+  };
 }
 
 async function ingestLead(req, body) {
@@ -198,10 +218,69 @@ async function writeWebhookLeads(leads) {
   await writeFile(webhookLeadsFile, JSON.stringify(leads.slice(-5000), null, 2));
 }
 
-async function listOneSheet(sheets, config, sheetIndex) {
+function googleReadMethods() {
+  const methods = [];
+
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    methods.push({
+      name: "service_account",
+      read: async (config, sheetIndex) => {
+        const auth = google.auth.fromJSON(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
+        auth.scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"];
+        const sheets = google.sheets({ version: "v4", auth });
+        return listOneSheet(sheets, config, sheetIndex, "service_account");
+      },
+    });
+  }
+
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
+    methods.push({
+      name: "owner_oauth",
+      read: async (config, sheetIndex) => {
+        const auth = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
+        auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+        const sheets = google.sheets({ version: "v4", auth });
+        return listOneSheet(sheets, config, sheetIndex, "owner_oauth");
+      },
+    });
+  }
+
+  methods.push({ name: "public_csv", read: listOneSheetPublicCsv });
+  return methods;
+}
+
+async function listOneSheetWithFallback(config, sheetIndex, methods) {
+  const errors = [];
+  for (const method of methods) {
+    try {
+      return await method.read(config, sheetIndex);
+    } catch (error) {
+      errors.push(`${method.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(errors.join(" | ") || "No Google Sheets read method is configured.");
+}
+
+async function listOneSheet(sheets, config, sheetIndex, source = "google_sheets_api") {
   const response = await sheets.spreadsheets.values.get({ spreadsheetId: config.spreadsheetId, range: config.sheetName });
   const rows = response.data.values || [];
-  if (!rows.length) return { leads: [], columnsFound: [] };
+  return rowsToLeads(rows, config, sheetIndex, source);
+}
+
+async function listOneSheetPublicCsv(config, sheetIndex) {
+  const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(config.spreadsheetId)}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(config.sheetName)}`;
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(`Public CSV read failed (${response.status}). Check link sharing or OAuth scope.`);
+  }
+
+  const csv = await response.text();
+  const rows = parseCsv(csv);
+  return rowsToLeads(rows, config, sheetIndex, "public_csv");
+}
+
+function rowsToLeads(rows, config, sheetIndex, source) {
+  if (!rows.length) return { offer: config.offer, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: 0, leads: [], columnsFound: [] };
 
   const [headerRow, ...dataRows] = rows;
   const columnIndex = buildColumnIndex(headerRow);
@@ -210,7 +289,51 @@ async function listOneSheet(sheets, config, sheetIndex) {
     .map((row, index) => mapLead(headerRow, row, columnIndex, index, config, sheetIndex));
 
   const columnsFound = Object.keys(columnIndex);
-  return { leads, columnsFound };
+  return { offer: config.offer, spreadsheetId: config.spreadsheetId, sheetName: config.sheetName, source, rows: dataRows.length, leads, columnsFound };
+}
+
+function parseCsv(csv) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+    const next = csv[index + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      value += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(value);
+      value = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(value);
+      if (row.some((cellValue) => String(cellValue || "").trim())) rows.push(row);
+      row = [];
+      value = "";
+      continue;
+    }
+
+    value += char;
+  }
+
+  row.push(value);
+  if (row.some((cellValue) => String(cellValue || "").trim())) rows.push(row);
+  return rows;
 }
 
 function buildColumnIndex(headerRow) {
@@ -230,17 +353,21 @@ function mapLead(headerRow, row, columnIndex, index, config, sheetIndex) {
   headerRow.forEach((header, cellIndex) => {
     raw[header] = cell(row, cellIndex);
   });
-  const firstName = cell(row, columnIndex.firstName);
-  const lastName = cell(row, columnIndex.lastName);
+  const sheetName = cell(row, columnIndex.fullName);
+  const [fallbackFirst, ...fallbackLast] = sheetName.split(/\s+/).filter(Boolean);
+  const firstName = cell(row, columnIndex.firstName) || fallbackFirst || "";
+  const lastName = cell(row, columnIndex.lastName) || fallbackLast.join(" ");
   const paymentStatus = cell(row, columnIndex.paymentStatus).toLowerCase();
   const purchasedRaw = cell(row, columnIndex.purchased).toLowerCase();
+  const status = cell(row, columnIndex.status);
   const sourceRowNumber = index + 2;
+  const purchased = isPaidSignal(paymentStatus) || isPaidSignal(purchasedRaw) || isPaidSignal(status);
   return {
     rowNumber: sheetIndex * 100_000 + sourceRowNumber,
     sourceRowNumber,
     firstName,
     lastName,
-    fullName: [firstName, lastName].filter(Boolean).join(" "),
+    fullName: sheetName || [firstName, lastName].filter(Boolean).join(" "),
     email: cell(row, columnIndex.email),
     phone: cell(row, columnIndex.phone),
     businessName: cell(row, columnIndex.businessName),
@@ -252,16 +379,23 @@ function mapLead(headerRow, row, columnIndex, index, config, sheetIndex) {
     utmSource: cell(row, columnIndex.utmSource),
     utmMedium: cell(row, columnIndex.utmMedium),
     submittedAt: cell(row, columnIndex.submittedAt),
-    purchased: truthy.has(purchasedRaw) || truthy.has(paymentStatus),
+    purchased,
     paymentAmount: cell(row, columnIndex.paymentAmount),
     paymentStatus: cell(row, columnIndex.paymentStatus),
-    status: cell(row, columnIndex.status),
+    status,
     notes: cell(row, columnIndex.notes),
     sheetOffer: config.offer,
     sheetName: config.sheetName,
     spreadsheetId: config.spreadsheetId,
     raw,
   };
+}
+
+function isPaidSignal(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || ["no", "false", "0", "unpaid", "failed", "abandoned"].includes(normalized)) return false;
+  if (truthy.has(normalized) || paidSignals.includes(normalized)) return true;
+  return /\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4}|paid|purchase|success|complete/.test(normalized);
 }
 
 function leadSheetConfigs() {

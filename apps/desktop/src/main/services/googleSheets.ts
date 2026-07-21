@@ -36,28 +36,30 @@ export type SheetLead = {
  * "FirstName" all resolve the same way. Users don't need to rename their
  * existing columns to match this app.
  */
-const HEADER_ALIASES: Record<keyof Omit<SheetLead, "rowNumber" | "fullName" | "purchased" | "raw" | "sheetOffer" | "sheetName" | "spreadsheetId" | "sourceRowNumber">, string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<SheetLead, "rowNumber" | "fullName" | "purchased" | "raw" | "sheetOffer" | "sheetName" | "spreadsheetId" | "sourceRowNumber"> | "fullName", string[]> = {
   firstName: ["first name", "firstname", "first"],
   lastName: ["last name", "lastname", "last"],
-  email: ["email", "email address"],
-  phone: ["phone", "phone number", "mobile"],
+  fullName: ["name", "full name", "customer name", "lead name"],
+  email: ["email", "email address", "lead email"],
+  phone: ["phone", "phone number", "mobile", "lead phone"],
   businessName: ["business name", "business", "company"],
-  website: ["website", "site", "url"],
+  website: ["website", "site", "url", "page url", "last page"],
   offer: ["offer"],
-  product: ["product", "product purchased", "product viewed"],
+  product: ["product", "product purchased", "product viewed", "product name", "download product"],
   source: ["source", "lead source", "traffic source"],
-  campaign: ["campaign", "google ads campaign"],
+  campaign: ["campaign", "google ads campaign", "utm campaign", "utm_campaign"],
   utmSource: ["utm source", "utm_source"],
   utmMedium: ["utm medium", "utm_medium"],
-  submittedAt: ["submitted at", "submission date", "date", "created", "timestamp"],
+  submittedAt: ["submitted at", "submission date", "date", "created", "created at", "first seen", "timestamp"],
   paymentAmount: ["payment amount", "amount", "price", "order total"],
-  paymentStatus: ["payment status", "order status"],
-  status: ["status", "lead status", "pipeline status"],
+  paymentStatus: ["payment status", "order status", "payment successful at"],
+  status: ["status", "lead status", "pipeline status", "current status", "event type", "last event"],
   notes: ["notes", "note", "internal notes"],
 };
 
-const PURCHASED_ALIASES = ["purchased", "customer", "has purchased", "paid"];
+const PURCHASED_ALIASES = ["purchased", "customer", "has purchased", "paid", "payment successful at"];
 const TRUTHY = new Set(["yes", "y", "true", "1", "paid", "customer", "purchased", "completed", "won"]);
+const PAID_SIGNALS = ["paid", "purchased", "succeeded", "success", "completed", "complete", "payment_successful"];
 
 function normalizeHeader(h: string) {
   return h.trim().toLowerCase().replace(/[_\-]/g, " ").replace(/\s+/g, " ");
@@ -81,6 +83,13 @@ function buildColumnIndex(headerRow: string[]) {
 function cell(row: string[], index: number | undefined) {
   if (index === undefined) return "";
   return (row[index] ?? "").trim();
+}
+
+function isPaidSignal(value: string) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || ["no", "false", "0", "unpaid", "failed", "abandoned"].includes(normalized)) return false;
+  if (TRUTHY.has(normalized) || PAID_SIGNALS.includes(normalized)) return true;
+  return /\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4}|paid|purchase|success|complete/.test(normalized);
 }
 
 export async function fetchLeadsFromSheet(): Promise<{
@@ -151,18 +160,21 @@ async function fetchOneSheet(
       const raw: Record<string, string> = {};
       (headerRow as string[]).forEach((h, idx) => (raw[h] = cell(row as string[], idx)));
 
-      const firstName = cell(row as string[], columnIndex.firstName);
-      const lastName = cell(row as string[], columnIndex.lastName);
+      const sheetName = cell(row as string[], columnIndex.fullName);
+      const [fallbackFirst, ...fallbackLast] = sheetName.split(/\s+/).filter(Boolean);
+      const firstName = cell(row as string[], columnIndex.firstName) || fallbackFirst || "";
+      const lastName = cell(row as string[], columnIndex.lastName) || fallbackLast.join(" ");
       const purchasedRaw = cell(row as string[], columnIndex.purchased).toLowerCase();
       const paymentStatus = cell(row as string[], columnIndex.paymentStatus).toLowerCase();
       const offer = cell(row as string[], columnIndex.offer) || config.offer;
+      const status = cell(row as string[], columnIndex.status);
 
       return {
         rowNumber: sheetIndex * 100_000 + sourceRowNumber,
         sourceRowNumber,
         firstName,
         lastName,
-        fullName: [firstName, lastName].filter(Boolean).join(" "),
+        fullName: sheetName || [firstName, lastName].filter(Boolean).join(" "),
         email: cell(row as string[], columnIndex.email),
         phone: cell(row as string[], columnIndex.phone),
         businessName: cell(row as string[], columnIndex.businessName),
@@ -174,10 +186,10 @@ async function fetchOneSheet(
         utmSource: cell(row as string[], columnIndex.utmSource),
         utmMedium: cell(row as string[], columnIndex.utmMedium),
         submittedAt: cell(row as string[], columnIndex.submittedAt),
-        purchased: TRUTHY.has(purchasedRaw) || TRUTHY.has(paymentStatus),
+        purchased: isPaidSignal(purchasedRaw) || isPaidSignal(paymentStatus) || isPaidSignal(status),
         paymentAmount: cell(row as string[], columnIndex.paymentAmount),
         paymentStatus: cell(row as string[], columnIndex.paymentStatus),
-        status: cell(row as string[], columnIndex.status),
+        status,
         notes: cell(row as string[], columnIndex.notes),
         sheetOffer: config.offer,
         sheetName: config.sheetName || "Sheet1",
