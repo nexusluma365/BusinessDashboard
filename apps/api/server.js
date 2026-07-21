@@ -46,6 +46,7 @@ http
       const url = new URL(req.url || "/", "http://localhost");
       if (req.method === "GET" && url.pathname === "/health") return send(res, 200, { ok: true, service: "syrus-api" });
       if (req.method === "GET" && url.pathname === "/api/google/status") return send(res, 200, googleStatus());
+      if (req.method === "GET" && url.pathname === "/api/google/identity") return send(res, 200, await googleIdentity());
       if (req.method === "GET" && url.pathname === "/api/leads") return send(res, 200, await listLeads());
       if (req.method === "GET" && url.pathname === "/api/ai/providers") return send(res, 200, availableProviders());
       if (req.method === "GET" && url.pathname === "/api/syrus/live-updates") return send(res, 200, await liveUpdates());
@@ -80,6 +81,43 @@ function googleStatus() {
       hasScriptUrl: Boolean(sheet.scriptUrl),
     })),
   };
+}
+
+async function googleIdentity() {
+  return {
+    serviceAccount: serviceAccountIdentity(),
+    ownerOAuth: await ownerOAuthIdentity(),
+  };
+}
+
+function serviceAccountIdentity() {
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    return { configured: false, email: null };
+  }
+
+  try {
+    const parsed = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    return { configured: true, email: parsed.client_email || null };
+  } catch (error) {
+    return { configured: true, email: null, error: "Service account JSON could not be parsed." };
+  }
+}
+
+async function ownerOAuthIdentity() {
+  const token = await getGmailAccessToken();
+  if (!token) {
+    return { configured: false, email: null, error: "OAuth access token is Not Available yet." };
+  }
+
+  const response = await fetch("https://www.googleapis.com/oauth2/v1/userinfo?alt=json", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    return { configured: true, email: null, error: await response.text() };
+  }
+
+  const payload = await response.json();
+  return { configured: true, email: payload.email || null, verifiedEmail: Boolean(payload.verified_email) };
 }
 
 async function listLeads() {
