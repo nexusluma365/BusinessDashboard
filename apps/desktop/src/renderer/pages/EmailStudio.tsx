@@ -18,6 +18,7 @@ import {
 import Header from "@/components/Header";
 import { buildEmailHtml, type EmailBlock, type EmailTemplate } from "@/lib/emailTemplate";
 import type { SheetLead } from "@/lib/bridge";
+import { findLeadById, leadId, parseLeadIds } from "@/lib/leadIdentity";
 
 const storageKey = "nexus-luma-email-templates";
 
@@ -82,8 +83,8 @@ export default function EmailStudio() {
   const [activeId, setActiveId] = useState(templates[0]?.id ?? basePreset.id);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(templates[0]?.blocks[1]?.id ?? null);
   const [leadQuery, setLeadQuery] = useState("");
-  const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [sendMode, setSendMode] = useState<SendMode>("preview");
   const [manualRecipients, setManualRecipients] = useState("");
   const [sending, setSending] = useState(false);
@@ -103,7 +104,7 @@ export default function EmailStudio() {
   });
 
   const leads = leadsQuery.data?.leads ?? [];
-  const selectedLead = leads.find((lead) => lead.rowNumber === selectedLeadId) ?? leads[0] ?? null;
+  const selectedLead = findLeadById(leads, selectedLeadId) ?? leads[0] ?? null;
   const activeTemplate: EmailTemplate = templates.find((template) => template.id === activeId) ?? templates[0] ?? basePreset;
   const personalized = useMemo(() => personalizeTemplate(activeTemplate, selectedLead), [activeTemplate, selectedLead]);
   const html = useMemo(() => buildEmailHtml(personalized), [personalized]);
@@ -119,7 +120,7 @@ export default function EmailStudio() {
     );
   }), [leadQuery, leads]);
   const selectedRowSet = useMemo(() => new Set(selectedRows), [selectedRows]);
-  const selectedLeads = useMemo(() => leads.filter((lead) => selectedRowSet.has(lead.rowNumber)), [leads, selectedRowSet]);
+  const selectedLeads = useMemo(() => leads.filter((lead) => selectedRowSet.has(leadId(lead))), [leads, selectedRowSet]);
   const recipients = useMemo(
     () => recipientsForMode(sendMode, selectedLead, selectedLeads, filteredLeads, manualRecipients),
     [filteredLeads, manualRecipients, selectedLead, selectedLeads, sendMode]
@@ -130,17 +131,29 @@ export default function EmailStudio() {
   useEffect(() => {
     if (!leads.length) return;
 
-    const leadRow = Number(searchParams.get("lead") || "");
-    const rows = parseRowsParam(searchParams.get("rows"));
+    const id = searchParams.get("leadId");
+    const ids = parseLeadIds(searchParams.get("leadIds"));
+    const legacyLeadRow = Number(searchParams.get("lead") || "");
+    const legacyRows = parseRowsParam(searchParams.get("rows"));
     const mode = searchParams.get("mode") as SendMode | null;
 
-    if (rows.length) {
-      setSelectedRows(rows);
+    if (ids.length) {
+      setSelectedRows(ids);
       setSendMode("selected");
+    } else if (legacyRows.length) {
+      const mapped = legacyRows
+        .map((row) => leads.find((lead) => lead.rowNumber === row))
+        .filter((lead): lead is SheetLead => Boolean(lead))
+        .map((lead) => leadId(lead));
+      setSelectedRows(mapped);
+      if (mapped.length) setSendMode("selected");
     }
 
-    if (Number.isFinite(leadRow) && leads.some((lead) => lead.rowNumber === leadRow)) {
-      setSelectedLeadId(leadRow);
+    if (findLeadById(leads, id)) {
+      setSelectedLeadId(id);
+    } else if (Number.isFinite(legacyLeadRow)) {
+      const legacyLead = leads.find((lead) => lead.rowNumber === legacyLeadRow);
+      if (legacyLead) setSelectedLeadId(leadId(legacyLead));
     }
 
     if (mode && ["preview", "selected", "filtered", "manual"].includes(mode)) {
@@ -210,14 +223,15 @@ export default function EmailStudio() {
     }
   }
 
-  function toggleLead(rowNumber: number) {
+  function toggleLead(lead: SheetLead) {
+    const id = leadId(lead);
     setSelectedRows((current) =>
-      current.includes(rowNumber) ? current.filter((row) => row !== rowNumber) : [...current, rowNumber]
+      current.includes(id) ? current.filter((row) => row !== id) : [...current, id]
     );
   }
 
   function selectFilteredLeads() {
-    setSelectedRows(filteredLeads.map((lead) => lead.rowNumber));
+    setSelectedRows(filteredLeads.map((lead) => leadId(lead)));
     setSendMode("selected");
   }
 
@@ -305,9 +319,9 @@ export default function EmailStudio() {
             <div className="max-h-[270px] space-y-2 overflow-y-auto pr-1">
               {filteredLeads.map((lead) => (
                 <div
-                  key={lead.rowNumber}
+                  key={leadId(lead)}
                   className={`w-full rounded-card border px-3 py-3 text-left text-sm shadow-card transition-colors ${
-                    selectedLead?.rowNumber === lead.rowNumber
+                    selectedLead && leadId(selectedLead) === leadId(lead)
                       ? "border-accent-gold/40 bg-accent-gold text-white"
                       : "border-border bg-bg-panel text-text-secondary hover:bg-bg-panelHover"
                   }`}
@@ -315,11 +329,11 @@ export default function EmailStudio() {
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={selectedRowSet.has(lead.rowNumber)}
-                      onChange={() => toggleLead(lead.rowNumber)}
+                      checked={selectedRowSet.has(leadId(lead))}
+                      onChange={() => toggleLead(lead)}
                       className="accent-status-info"
                     />
-                    <button onClick={() => setSelectedLeadId(lead.rowNumber)} className="min-w-0 flex-1 text-left">
+                    <button onClick={() => setSelectedLeadId(leadId(lead))} className="min-w-0 flex-1 text-left">
                       <span className="block truncate font-medium">{lead.fullName || "Unnamed lead"}</span>
                       <span className="block truncate text-xs opacity-70">{lead.email || lead.offer || "No context"}</span>
                     </button>

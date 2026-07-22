@@ -32,6 +32,10 @@ VAPI_PUBLIC_KEY=...
 VAPI_ASSISTANT_ID=...
 ```
 
+If `VAPI_ASSISTANT_ID` is not set, Railway will try to resolve a SYRUS/Nexus
+assistant automatically from `VAPI_API_KEY`. Setting `VAPI_ASSISTANT_ID` is
+still the fastest and most reliable production option.
+
 You only need **one** of the Anthropic/OpenAI keys for text reasoning to work.
 If both are set, `AI_PROVIDER`
 picks the default, and it's also changeable at runtime from
@@ -49,7 +53,8 @@ picks the default, and it's also changeable at runtime from
   snapshot, and instructs the model to answer only from that snapshot —
   this is what stops SYLUS from inventing lead counts or names.
 - **Voice readiness**: the app checks for VAPI plus an active reasoning
-  provider, but live audio calling is still kept separate from Lead Text.
+  provider. The admin voice globe starts a VAPI session; Lead Text remains
+  separate and customer-safe.
 
 ## Coming in later phases
 
@@ -57,8 +62,6 @@ picks the default, and it's also changeable at runtime from
   original spec) replacing today's single data-snapshot approach, so SYLUS
   can take read/draft/confirmation-gated actions instead of just answering
   questions.
-- **Full VAPI voice session wiring** for live speech input/output on the
-  admin side.
 - **Textbot qualification flows** (Web Design / Digital Products / Credit
   Repair question trees) built on top of the customer-safe lane.
 

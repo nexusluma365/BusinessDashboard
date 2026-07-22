@@ -4,16 +4,17 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Bot, Check, Copy, ExternalLink, Mail, MessageSquareText, Phone, RefreshCw, Search, Send, ShieldCheck, Sparkles } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
+import { findLeadById, leadId } from "@/lib/leadIdentity";
 
 type ChatMessage = { role: "user" | "assistant"; content: string; timestamp: string };
-type ThreadMap = Record<number, ChatMessage[]>;
+type ThreadMap = Record<string, ChatMessage[]>;
 
 export default function Conversations() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [threads, setThreads] = useState<ThreadMap>({});
   const [loading, setLoading] = useState(false);
@@ -31,26 +32,33 @@ export default function Conversations() {
     const q = search.toLowerCase();
     return !q || l.fullName.toLowerCase().includes(q) || l.phone.includes(q) || l.email.toLowerCase().includes(q) || l.offer.toLowerCase().includes(q);
   });
-  const selected = workableLeads.find((lead) => lead.rowNumber === selectedRow) ?? filtered[0] ?? null;
-  const activeThread = selected ? threads[selected.rowNumber] ?? [] : [];
+  const selected = findLeadById(workableLeads, selectedLeadId) ?? filtered[0] ?? null;
+  const activeLeadId = selected ? leadId(selected) : "";
+  const activeThread = activeLeadId ? threads[activeLeadId] ?? [] : [];
   const latestDraft = [...activeThread].reverse().find((m) => m.role === "assistant")?.content ?? "";
   const recentLeads = useMemo(() => workableLeads.slice(0, 7), [workableLeads]);
 
   useEffect(() => {
-    const leadRow = Number(searchParams.get("lead") || "");
-    if (Number.isFinite(leadRow) && workableLeads.some((lead) => lead.rowNumber === leadRow)) {
-      setSelectedRow(leadRow);
+    const id = searchParams.get("leadId");
+    if (findLeadById(workableLeads, id)) {
+      setSelectedLeadId(id);
+      return;
+    }
+    const legacyLeadRow = Number(searchParams.get("lead") || "");
+    const legacyLead = workableLeads.find((lead) => lead.rowNumber === legacyLeadRow);
+    if (legacyLead) {
+      setSelectedLeadId(leadId(legacyLead));
     }
   }, [searchParams, workableLeads]);
 
   useEffect(() => {
-    if (!selectedRow && filtered[0]) {
-      setSelectedRow(filtered[0].rowNumber);
+    if (!selectedLeadId && filtered[0]) {
+      setSelectedLeadId(leadId(filtered[0]));
     }
-  }, [filtered, selectedRow]);
+  }, [filtered, selectedLeadId]);
 
   function selectLead(lead: SheetLead) {
-    setSelectedRow(lead.rowNumber);
+    setSelectedLeadId(leadId(lead));
     setCopied(false);
   }
 
@@ -58,10 +66,11 @@ export default function Conversations() {
     if (!selected || loading) return;
 
     const userMessage: ChatMessage = { role: "user", content: message, timestamp: timeNow() };
-    const history = threads[selected.rowNumber] ?? [];
+    const selectedId = leadId(selected);
+    const history = threads[selectedId] ?? [];
     setThreads((current) => ({
       ...current,
-      [selected.rowNumber]: [...history, userMessage],
+      [selectedId]: [...history, userMessage],
     }));
     setInput("");
     setLoading(true);
@@ -86,7 +95,7 @@ export default function Conversations() {
         : { role: "assistant", content: result.reply, timestamp: timeNow() };
     setThreads((current) => ({
       ...current,
-      [selected.rowNumber]: [...(current[selected.rowNumber] ?? []), assistantMessage],
+      [selectedId]: [...(current[selectedId] ?? []), assistantMessage],
     }));
   }
 
@@ -109,7 +118,7 @@ export default function Conversations() {
 
   function openEmailStudio() {
     if (!selected?.email.trim()) return;
-    navigate(`/email-studio?lead=${selected.rowNumber}&mode=preview`);
+    navigate(`/email-studio?leadId=${leadId(selected)}&mode=preview`);
   }
 
   function refreshLeads() {
@@ -145,8 +154,8 @@ export default function Conversations() {
               <div className="text-xs font-medium text-text-secondary mb-3">Recent Chat</div>
               <div className="flex gap-3 overflow-x-auto pb-1">
                 {recentLeads.map((lead) => (
-                  <button key={lead.rowNumber} onClick={() => selectLead(lead)} className="relative shrink-0" title={lead.fullName || lead.phone}>
-                    <LeadAvatar lead={lead} active={selected?.rowNumber === lead.rowNumber} />
+                  <button key={leadId(lead)} onClick={() => selectLead(lead)} className="relative shrink-0" title={lead.fullName || lead.phone}>
+                    <LeadAvatar lead={lead} active={selected ? leadId(selected) === leadId(lead) : false} />
                     <span className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full bg-status-success border border-[#050308]" />
                   </button>
                 ))}
@@ -162,22 +171,22 @@ export default function Conversations() {
           <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
             {filtered.map((lead) => (
               <button
-                key={lead.rowNumber}
+                key={leadId(lead)}
                 onClick={() => selectLead(lead)}
                 className={`w-full text-left rounded-card border p-4 transition-colors ${
-                  selected?.rowNumber === lead.rowNumber
+                  selected && leadId(selected) === leadId(lead)
                     ? "bg-[#f7f4ff] text-[#141217] border-transparent"
                     : "bg-bg-panel border-border hover:bg-bg-panelHover"
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <LeadAvatar lead={lead} active={selected?.rowNumber === lead.rowNumber} />
+                  <LeadAvatar lead={lead} active={selected ? leadId(selected) === leadId(lead) : false} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-semibold truncate">{lead.fullName || "Unnamed lead"}</div>
-                      <span className="text-[11px] opacity-60">{threadAge(threads[lead.rowNumber])}</span>
+                      <span className="text-[11px] opacity-60">{threadAge(threads[leadId(lead)])}</span>
                     </div>
-                    <div className="text-xs opacity-70 truncate mt-1">{latestPreview(threads[lead.rowNumber]) || lead.offer || "Not Available yet"}</div>
+                    <div className="text-xs opacity-70 truncate mt-1">{latestPreview(threads[leadId(lead)]) || lead.offer || "Not Available yet"}</div>
                     <div className="text-[11px] opacity-60 truncate mt-1">
                       {lead.phone ? `SMS: ${lead.phone}` : lead.email ? `Email: ${lead.email}` : "Not Available yet"}
                     </div>

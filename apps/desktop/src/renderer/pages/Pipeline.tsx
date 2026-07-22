@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { CheckCircle2, Clock, Inbox, Search, UserCheck } from "lucide-react";
+import { CheckCircle2, Clock, Inbox, Search, Trash2, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
+import { leadId } from "@/lib/leadIdentity";
 
 type PipelineStatus = "Queue" | "Work In Process" | "Completed";
-type PipelineMeta = Record<number, { isCustomer?: boolean; status: PipelineStatus; completionBy: string }>;
+type PipelineMeta = Record<string, { isCustomer?: boolean; status: PipelineStatus; completionBy: string }>;
 
 const storageKey = "nexus-luma-customer-pipeline";
 const statuses: PipelineStatus[] = ["Queue", "Work In Process", "Completed"];
@@ -27,10 +28,17 @@ export default function Pipeline() {
   }, [leadsQuery.data?.leads, meta]);
 
   useEffect(() => {
-    const customerRow = Number(searchParams.get("customer") || "");
-    if (!Number.isFinite(customerRow)) return;
-    const leadExists = (leadsQuery.data?.leads ?? []).some((lead) => lead.rowNumber === customerRow);
-    if (leadExists) updateCustomer(customerRow, { isCustomer: true, status: "Queue" });
+    const customerId = searchParams.get("customerId");
+    if (customerId) {
+      const leadExists = (leadsQuery.data?.leads ?? []).some((lead) => leadId(lead) === customerId);
+      if (leadExists) updateCustomer(customerId, { isCustomer: true, status: "Queue" });
+      return;
+    }
+
+    const legacyCustomerRow = Number(searchParams.get("customer") || "");
+    if (!Number.isFinite(legacyCustomerRow)) return;
+    const lead = (leadsQuery.data?.leads ?? []).find((item) => item.rowNumber === legacyCustomerRow);
+    if (lead) updateCustomer(leadId(lead), { isCustomer: true, status: "Queue" });
   }, [leadsQuery.data?.leads, searchParams]);
 
   const filtered = customers.filter((customer) => {
@@ -50,17 +58,26 @@ export default function Pipeline() {
     value: customers.filter((customer) => pipelineFor(meta, customer).status === status).length,
   }));
 
-  function updateCustomer(rowNumber: number, patch: Partial<PipelineMeta[number]>) {
+  function updateCustomer(id: string, patch: Partial<PipelineMeta[string]>) {
     setMeta((current) => {
       const next = {
         ...current,
-        [rowNumber]: {
+        [id]: {
           isCustomer: true,
-          status: current[rowNumber]?.status ?? "Queue",
-          completionBy: current[rowNumber]?.completionBy ?? "",
+          status: current[id]?.status ?? "Queue",
+          completionBy: current[id]?.completionBy ?? "",
           ...patch,
         },
       };
+      localStorage.setItem(storageKey, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function removeCustomer(id: string) {
+    setMeta((current) => {
+      const next = { ...current };
+      next[id] = { ...(next[id] ?? { status: "Queue", completionBy: "" }), isCustomer: false };
       localStorage.setItem(storageKey, JSON.stringify(next));
       return next;
     });
@@ -143,13 +160,15 @@ export default function Pipeline() {
                 <th className="px-4 py-4 font-medium">Current status</th>
                 <th className="px-4 py-4 font-medium">Expected due date</th>
                 <th className="px-4 py-4 font-medium">Payment</th>
+                <th className="px-4 py-4 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((customer) => {
                 const item = pipelineFor(meta, customer);
+                const id = leadId(customer);
                 return (
-                  <tr key={customer.rowNumber} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
+                  <tr key={id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
                     <td className="px-4 py-4">
                       <div className="font-medium">{customer.fullName || "Not Available yet"}</div>
                       <div className="text-xs text-text-muted">{customer.businessName || customer.phone || "Not Available yet"}</div>
@@ -163,7 +182,7 @@ export default function Pipeline() {
                     <td className="px-4 py-4">
                       <select
                         value={item.status}
-                        onChange={(event) => updateCustomer(customer.rowNumber, { status: event.target.value as PipelineStatus })}
+                        onChange={(event) => updateCustomer(id, { status: event.target.value as PipelineStatus })}
                         className="bg-bg-panel border border-border rounded-card px-3 py-2 text-sm outline-none focus:border-accent-gold"
                       >
                         {statuses.map((status) => (
@@ -177,7 +196,7 @@ export default function Pipeline() {
                       <input
                         type="date"
                         value={item.completionBy}
-                        onChange={(event) => updateCustomer(customer.rowNumber, { completionBy: event.target.value })}
+                        onChange={(event) => updateCustomer(id, { completionBy: event.target.value })}
                         className="bg-bg-panel border border-border rounded-card px-3 py-2 text-sm outline-none focus:border-accent-gold"
                       />
                     </td>
@@ -186,12 +205,31 @@ export default function Pipeline() {
                         {isConvertedCustomer(customer) ? `Paid${customer.paymentAmount ? ` · $${customer.paymentAmount}` : ""}` : "Manual customer"}
                       </span>
                     </td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => updateCustomer(id, { status: "Completed" })}
+                          className="flex h-8 items-center gap-1.5 rounded-lg border border-status-success/30 bg-status-success/10 px-2.5 text-xs text-status-success transition hover:bg-status-success/15"
+                          title="Mark complete"
+                        >
+                          <CheckCircle2 size={13} /> Complete
+                        </button>
+                        <button
+                          onClick={() => removeCustomer(id)}
+                          disabled={isConvertedCustomer(customer)}
+                          className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-panel px-2.5 text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-status-error disabled:cursor-not-allowed disabled:opacity-40"
+                          title={isConvertedCustomer(customer) ? "Paid customers stay in the pipeline automatically" : "Remove manual customer"}
+                        >
+                          <Trash2 size={13} /> Remove
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-text-muted">
+                  <td colSpan={8} className="px-4 py-12 text-center text-text-muted">
                     {customers.length === 0 ? "Not Available yet. Mark a lead as Customer from the Leads CRM to add them here." : "No customers match this view."}
                   </td>
                 </tr>
@@ -209,11 +247,11 @@ function isConvertedCustomer(lead: SheetLead) {
 }
 
 function isPipelineCustomer(meta: PipelineMeta, lead: SheetLead) {
-  return Boolean(meta[lead.rowNumber]?.isCustomer || isConvertedCustomer(lead));
+  return Boolean(meta[leadId(lead)]?.isCustomer || isConvertedCustomer(lead));
 }
 
 function pipelineFor(meta: PipelineMeta, customer: SheetLead) {
-  return meta[customer.rowNumber] ?? { isCustomer: isConvertedCustomer(customer), status: "Queue" as const, completionBy: "" };
+  return meta[leadId(customer)] ?? { isCustomer: isConvertedCustomer(customer), status: "Queue" as const, completionBy: "" };
 }
 
 function loadMeta(): PipelineMeta {

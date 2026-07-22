@@ -34,6 +34,7 @@ export default function SylusPanel() {
   const [vapiState, setVapiState] = useState<"idle" | "connecting" | "connected" | "speaking">("idle");
   const [voiceError, setVoiceError] = useState("");
   const voicePulseTimer = useRef<number | null>(null);
+  const autoStartedForOpen = useRef(false);
   const vapiRef = useRef<{ stop: () => void } | null>(null);
   const liveUpdates = useQuery({
     queryKey: ["sylus-live-updates"],
@@ -106,6 +107,19 @@ export default function SylusPanel() {
       vapiRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      autoStartedForOpen.current = false;
+      stopVapiCall();
+      return;
+    }
+
+    if (voiceReady && vapiState === "idle" && !autoStartedForOpen.current) {
+      autoStartedForOpen.current = true;
+      void startVapiCall();
+    }
+  }, [open, voiceReady, vapiState]);
 
   if (!open) {
     return null;
@@ -244,6 +258,24 @@ export default function SylusPanel() {
         </div>
 
         <div className="max-h-[calc(100vh-156px)] overflow-y-auto p-4 space-y-3">
+          <div className="panel p-4 text-center space-y-3">
+            <button
+              type="button"
+              onClick={toggleVapiCall}
+              disabled={!voiceReady && !vapiActive}
+              className="mx-auto block rounded-full transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-70"
+              title={vapiActive ? "End SYRUS VAPI call" : "Start SYRUS VAPI call"}
+            >
+              <VoiceOrb active={voiceDetected || loading || vapiActive} />
+            </button>
+            <div>
+              <div className="text-sm font-semibold">SYRUS is {vapiActive ? vapiState : voiceReady ? "ready" : "waiting for VAPI"}</div>
+              <div className="text-[11px] text-text-muted mt-1">
+                {voiceReady ? "Click the globe to start or end the voice call." : "Add VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID in Railway."}
+              </div>
+            </div>
+          </div>
+
           <div className="panel p-3 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs font-medium">

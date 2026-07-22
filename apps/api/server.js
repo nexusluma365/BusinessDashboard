@@ -50,7 +50,7 @@ http
       if (req.method === "GET" && url.pathname === "/api/leads") return send(res, 200, await listLeads());
       if (req.method === "GET" && url.pathname === "/api/ai/providers") return send(res, 200, availableProviders());
       if (req.method === "GET" && url.pathname === "/api/syrus/live-updates") return send(res, 200, await liveUpdates());
-      if (req.method === "GET" && url.pathname === "/api/syrus/voice-status") return send(res, 200, voiceStatus());
+      if (req.method === "GET" && url.pathname === "/api/syrus/voice-status") return send(res, 200, await voiceStatus());
 
       if (req.method === "POST" && url.pathname === "/api/syrus/ask") return send(res, 200, await askSyrus(await readBody(req)));
       if (req.method === "POST" && url.pathname === "/api/lead-assistant/reply") return send(res, 200, await replyToLead(await readBody(req)));
@@ -673,10 +673,12 @@ async function replyToLead(body) {
   return { reply };
 }
 
-function voiceStatus() {
+let cachedVapiAssistant = { assistantId: "", checkedAt: 0 };
+
+async function voiceStatus() {
   const provider = activeProvider();
   const publicKey = process.env.VAPI_PUBLIC_KEY || "";
-  const assistantId = process.env.VAPI_ASSISTANT_ID || "";
+  const assistantId = process.env.VAPI_ASSISTANT_ID || (await resolveVapiAssistantId());
   const vapiConfigured = Boolean(publicKey && assistantId);
   return {
     configured: vapiConfigured && Boolean(provider),
@@ -690,6 +692,31 @@ function voiceStatus() {
     wakePhrase: "Yo SYRUS",
     pronunciation: "SYY RR UHH SSS",
   };
+}
+
+async function resolveVapiAssistantId() {
+  const apiKey = process.env.VAPI_API_KEY || "";
+  if (!apiKey) return "";
+  if (cachedVapiAssistant.assistantId && Date.now() - cachedVapiAssistant.checkedAt < 300_000) {
+    return cachedVapiAssistant.assistantId;
+  }
+
+  try {
+    const response = await fetch("https://api.vapi.ai/assistant", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) return "";
+    const payload = await response.json();
+    const assistants = Array.isArray(payload) ? payload : Array.isArray(payload.data) ? payload.data : [];
+    const assistant =
+      assistants.find((item) => /syrus|sylus|nexus/i.test(`${item.name || ""} ${item.model?.messages?.[0]?.content || ""}`)) ||
+      assistants[0];
+    const assistantId = String(assistant?.id || "");
+    cachedVapiAssistant = { assistantId, checkedAt: Date.now() };
+    return assistantId;
+  } catch {
+    return "";
+  }
 }
 
 async function sendEmail(body) {

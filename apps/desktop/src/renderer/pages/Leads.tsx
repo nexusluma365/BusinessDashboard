@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Search, RefreshCw, Link2, CheckCircle2, Circle, ExternalLink, Mail, MessageSquareText, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { LeadSheetConfig, SheetLead } from "@/lib/bridge";
+import { leadId } from "@/lib/leadIdentity";
 
 const defaultLeadSheets: LeadSheetConfig[] = [
   { offer: "Web Design", spreadsheetName: "Nexus Luma INQ", spreadsheetId: "", sheetName: "Appointment Booking" },
@@ -11,14 +12,14 @@ const defaultLeadSheets: LeadSheetConfig[] = [
   { offer: "Credit Repair", spreadsheetName: "The Credit Project", spreadsheetId: "", sheetName: "2026 Data" },
 ];
 const pipelineStorageKey = "nexus-luma-customer-pipeline";
-type PipelineMeta = Record<number, { isCustomer?: boolean; status: "Queue" | "Work In Process" | "Completed"; completionBy: string }>;
+type PipelineMeta = Record<string, { isCustomer?: boolean; status: "Queue" | "Work In Process" | "Completed"; completionBy: string }>;
 
 export default function Leads() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [offerFilter, setOfferFilter] = useState<string>("All");
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [pipelineMeta, setPipelineMeta] = useState<PipelineMeta>(() => loadPipelineMeta());
   const [leadSheetsInput, setLeadSheetsInput] = useState<LeadSheetConfig[]>(defaultLeadSheets);
 
@@ -64,11 +65,11 @@ export default function Leads() {
       l.businessName.toLowerCase().includes(q);
     return matchesOffer && matchesSearch;
   });
-  const filteredRows = useMemo(() => new Set(filtered.map((lead) => lead.rowNumber)), [filtered]);
+  const filteredRows = useMemo(() => new Set(filtered.map((lead) => leadId(lead))), [filtered]);
   const selectedRowSet = useMemo(() => new Set(selectedRows), [selectedRows]);
-  const selectedLeads = useMemo(() => leads.filter((lead) => selectedRowSet.has(lead.rowNumber)), [leads, selectedRowSet]);
+  const selectedLeads = useMemo(() => leads.filter((lead) => selectedRowSet.has(leadId(lead))), [leads, selectedRowSet]);
   const selectableFiltered = filtered.filter((lead) => lead.email || lead.phone);
-  const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((lead) => selectedRowSet.has(lead.rowNumber));
+  const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((lead) => selectedRowSet.has(leadId(lead)));
   const selectedWithEmail = selectedLeads.filter((lead) => isEmail(lead.email));
   const selectedWithPhone = selectedLeads.filter((lead) => lead.phone.trim());
 
@@ -296,12 +297,12 @@ export default function Leads() {
             </thead>
             <tbody>
               {filtered.map((lead) => (
-                <tr key={leadKey(lead)} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
+                <tr key={leadId(lead)} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
                   <td className="px-4 py-4">
                     <input
                       type="checkbox"
-                      checked={selectedRowSet.has(lead.rowNumber)}
-                      onChange={() => toggleLead(lead.rowNumber)}
+                      checked={selectedRowSet.has(leadId(lead))}
+                      onChange={() => toggleLead(lead)}
                       className="accent-status-info"
                       aria-label={`Select ${lead.fullName || lead.email || "lead"}`}
                     />
@@ -360,7 +361,7 @@ export default function Leads() {
                       <button
                         onClick={() => markAsCustomer(lead)}
                         className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition ${
-                          pipelineMeta[lead.rowNumber]?.isCustomer || lead.purchased
+                          pipelineMeta[leadId(lead)]?.isCustomer || lead.purchased
                             ? "border-status-success/30 bg-status-success/10 text-status-success"
                             : "border-border bg-bg-panel text-text-secondary hover:bg-bg-panelHover hover:text-text-primary"
                         }`}
@@ -406,14 +407,15 @@ export default function Leads() {
     setLeadSheetsInput((current) => current.map((sheet, itemIndex) => (itemIndex === index ? { ...sheet, ...patch } : sheet)));
   }
 
-  function toggleLead(rowNumber: number) {
+  function toggleLead(lead: SheetLead) {
+    const id = leadId(lead);
     setSelectedRows((current) =>
-      current.includes(rowNumber) ? current.filter((row) => row !== rowNumber) : [...current, rowNumber]
+      current.includes(id) ? current.filter((row) => row !== id) : [...current, id]
     );
   }
 
   function toggleFilteredSelection() {
-    const rows = selectableFiltered.map((lead) => lead.rowNumber);
+    const rows = selectableFiltered.map((lead) => leadId(lead));
     if (allFilteredSelected) {
       setSelectedRows((current) => current.filter((row) => !filteredRows.has(row)));
       return;
@@ -423,34 +425,35 @@ export default function Leads() {
 
   function openEmailForLead(lead: SheetLead) {
     if (!isEmail(lead.email)) return;
-    navigate(`/email-studio?lead=${lead.rowNumber}&mode=preview`);
+    navigate(`/email-studio?leadId=${leadId(lead)}&mode=preview`);
   }
 
   function openEmailForRows(rows: SheetLead[]) {
-    const rowNumbers = rows.map((lead) => lead.rowNumber);
-    if (!rowNumbers.length) return;
-    navigate(`/email-studio?rows=${rowNumbers.join(",")}&lead=${rowNumbers[0]}&mode=selected`);
+    const ids = rows.map((lead) => leadId(lead));
+    if (!ids.length) return;
+    navigate(`/email-studio?leadIds=${ids.join(",")}&leadId=${ids[0]}&mode=selected`);
   }
 
   function openTextForLead(lead?: SheetLead) {
     if (!lead?.phone.trim()) return;
-    navigate(`/conversations?lead=${lead.rowNumber}`);
+    navigate(`/conversations?leadId=${leadId(lead)}`);
   }
 
   function markAsCustomer(lead: SheetLead) {
+    const id = leadId(lead);
     setPipelineMeta((current) => {
       const next = {
         ...current,
-        [lead.rowNumber]: {
+        [id]: {
           isCustomer: true,
-          status: current[lead.rowNumber]?.status ?? "Queue",
-          completionBy: current[lead.rowNumber]?.completionBy ?? "",
+          status: current[id]?.status ?? "Queue",
+          completionBy: current[id]?.completionBy ?? "",
         },
       };
       localStorage.setItem(pipelineStorageKey, JSON.stringify(next));
       return next;
     });
-    navigate(`/pipeline?customer=${lead.rowNumber}`);
+    navigate(`/pipeline?customerId=${id}`);
   }
 }
 
@@ -466,10 +469,6 @@ function defaultSpreadsheetName(offer: string) {
   if (offer === "High Income Skills" || offer === "Digital Products") return "High Income Skills";
   if (offer === "Credit Repair") return "The Credit Project";
   return offer || "Not Available yet";
-}
-
-function leadKey(lead: SheetLead) {
-  return [lead.spreadsheetId, lead.sheetName, lead.sourceRowNumber, lead.rowNumber].filter(Boolean).join(":");
 }
 
 function isEmail(value: string) {
