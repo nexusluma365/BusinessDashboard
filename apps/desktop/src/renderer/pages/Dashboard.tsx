@@ -189,8 +189,8 @@ export default function Dashboard() {
 }
 
 function buildStats(leads: SheetLead[]) {
-  const newLeads = leads.filter((lead) => /new/i.test(lead.status)).length;
-  const qualifiedLeads = leads.filter((lead) => /qualified|booked/i.test(lead.status)).length;
+  const newLeads = leads.length;
+  const qualifiedLeads = leads.filter((lead) => hasContact(lead) && /submitted|viewed|abandoned|qualified|booked|checkout|payment|new/i.test(lead.status || "new")).length;
   const customers = leads.filter((lead) => lead.purchased || /paid|completed|customer|purchased/i.test(`${lead.paymentStatus} ${lead.status}`));
   const callsBooked = leads.filter((lead) => /booked|call/i.test(lead.status)).length;
   const revenue = customers.reduce((sum, lead) => sum + moneyToNumber(lead.paymentAmount), 0);
@@ -210,6 +210,22 @@ function buildStats(leads: SheetLead[]) {
 
 function groupMonthly(leads: SheetLead[]) {
   const grouped = new Map<string, { month: string; leads: number; customers: number }>();
+  const datedLeads = leads
+    .map((lead) => ({ lead, date: new Date(lead.submittedAt) }))
+    .filter((item) => !Number.isNaN(item.date.getTime()));
+  const uniqueMonths = new Set(datedLeads.map((item) => `${item.date.getFullYear()}-${item.date.getMonth()}`));
+
+  if (uniqueMonths.size <= 1 && datedLeads.length > 1) {
+    for (const { lead, date } of datedLeads) {
+      const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const current = grouped.get(day) ?? { month: day, leads: 0, customers: 0 };
+      current.leads += 1;
+      if (lead.purchased || /paid|completed|customer|purchased/i.test(`${lead.paymentStatus} ${lead.status}`)) current.customers += 1;
+      grouped.set(day, current);
+    }
+    return Array.from(grouped.values()).slice(-8);
+  }
+
   for (const lead of leads) {
     const date = new Date(lead.submittedAt);
     if (Number.isNaN(date.getTime())) continue;
@@ -248,6 +264,10 @@ function groupSources(leads: SheetLead[]) {
 function moneyToNumber(value: string) {
   const numeric = Number(value.replace(/[^0-9.-]/g, ""));
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function hasContact(lead: SheetLead) {
+  return Boolean(lead.email || lead.phone || lead.fullName || lead.businessName);
 }
 
 function currency(value: number) {

@@ -12,7 +12,7 @@ const defaultLeadSheets: LeadSheetConfig[] = [
   { offer: "Credit Repair", spreadsheetName: "The Credit Project", spreadsheetId: "", sheetName: "2026 Data" },
 ];
 const pipelineStorageKey = "nexus-luma-customer-pipeline";
-type PipelineMeta = Record<string, { isCustomer?: boolean; status: "Queue" | "Work In Process" | "Completed"; completionBy: string }>;
+type PipelineMeta = Record<string, { isCustomer?: boolean; archived?: boolean; removed?: boolean; status: "Queue" | "Work In Process" | "Completed"; completionBy: string }>;
 
 export default function Leads() {
   const queryClient = useQueryClient();
@@ -446,6 +446,8 @@ export default function Leads() {
         ...current,
         [id]: {
           isCustomer: true,
+          archived: false,
+          removed: false,
           status: current[id]?.status ?? "Queue",
           completionBy: current[id]?.completionBy ?? "",
         },

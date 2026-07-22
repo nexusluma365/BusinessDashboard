@@ -2,20 +2,18 @@ import { NavLink } from "react-router-dom";
 import { LogOut, Waves } from "lucide-react";
 import { navItems } from "@/lib/navigation";
 import { useSylusStore } from "@/store/useSylusStore";
+import { useNotificationsStore } from "@/store/useNotificationsStore";
 import { VoiceOrb } from "@/components/SylusPanel";
 
 export default function Sidebar() {
-  const toggleSylus = useSylusStore((s) => s.toggle);
   const sylusOpen = useSylusStore((s) => s.open);
+  const unreadCount = useNotificationsStore((s) => s.unreadCount);
 
   async function handleSylusClick() {
-    if (!sylusOpen) {
-      toggleSylus();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      window.dispatchEvent(new CustomEvent("syrus:start-voice-request"));
+      return;
     }
-
-    window.dispatchEvent(new CustomEvent("syrus:start-voice-request"));
-
-    if (!navigator.mediaDevices?.getUserMedia) return;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -72,7 +70,11 @@ export default function Sidebar() {
             >
               <item.icon size={18} strokeWidth={1.75} className="shrink-0" />
               <span className="text-sm font-medium">{item.label}</span>
-              {item.badge && <span className="ml-auto rounded-pill bg-status-error/10 px-2 py-0.5 text-[10px] text-status-error">{item.badge}</span>}
+              {item.path === "/notifications" && unreadCount > 0 ? (
+                <span className="ml-auto min-w-5 rounded-pill bg-status-error px-2 py-0.5 text-center text-[10px] font-semibold text-white">{unreadCount}</span>
+              ) : item.badge ? (
+                <span className="ml-auto rounded-pill bg-status-error/10 px-2 py-0.5 text-[10px] text-status-error">{item.badge}</span>
+              ) : null}
             </NavLink>
           )
         )}

@@ -22,7 +22,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-[340px] rounded-card bg-bg-secondary border border-border shadow-card overflow-hidden">
+        <div className="fixed right-24 top-[76px] z-[1000] w-[340px] rounded-card bg-bg-secondary border border-border shadow-card overflow-hidden">
           <div className="h-12 px-4 flex items-center justify-between border-b border-border-subtle">
             <div>
               <h2 className="text-sm font-semibold">Recent notifications</h2>

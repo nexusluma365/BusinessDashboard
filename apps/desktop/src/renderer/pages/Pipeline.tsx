@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { CheckCircle2, Clock, Inbox, Search, Trash2, UserCheck } from "lucide-react";
+import { Archive, CheckCircle2, Clock, Inbox, Search, Trash2, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
 import { leadId } from "@/lib/leadIdentity";
 
 type PipelineStatus = "Queue" | "Work In Process" | "Completed";
-type PipelineMeta = Record<string, { isCustomer?: boolean; removed?: boolean; status: PipelineStatus; completionBy: string }>;
+type PipelineMeta = Record<string, { isCustomer?: boolean; archived?: boolean; removed?: boolean; status: PipelineStatus; completionBy: string }>;
 
 const storageKey = "nexus-luma-customer-pipeline";
 const statuses: PipelineStatus[] = ["Queue", "Work In Process", "Completed"];
@@ -16,6 +16,7 @@ export default function Pipeline() {
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PipelineStatus | "All">("All");
+  const [showArchived, setShowArchived] = useState(false);
   const [meta, setMeta] = useState<PipelineMeta>(() => loadMeta());
 
   const leadsQuery = useQuery({
@@ -41,7 +42,11 @@ export default function Pipeline() {
     if (lead) updateCustomer(leadId(lead), { isCustomer: true, status: "Queue" });
   }, [leadsQuery.data?.leads, searchParams]);
 
-  const filtered = customers.filter((customer) => {
+  const activeCustomers = customers.filter((customer) => !pipelineFor(meta, customer).archived);
+  const archivedCustomers = customers.filter((customer) => pipelineFor(meta, customer).archived);
+  const visibleCustomers = showArchived ? archivedCustomers : activeCustomers;
+
+  const filtered = visibleCustomers.filter((customer) => {
     const query = search.toLowerCase();
     const customerStatus = pipelineFor(meta, customer).status;
     const matchesStatus = statusFilter === "All" || customerStatus === statusFilter;
@@ -55,7 +60,7 @@ export default function Pipeline() {
 
   const counts = statuses.map((status) => ({
     status,
-    value: customers.filter((customer) => pipelineFor(meta, customer).status === status).length,
+    value: activeCustomers.filter((customer) => pipelineFor(meta, customer).status === status).length,
   }));
 
   function updateCustomer(id: string, patch: Partial<PipelineMeta[string]>) {
@@ -66,6 +71,7 @@ export default function Pipeline() {
           isCustomer: true,
           status: current[id]?.status ?? "Queue",
           completionBy: current[id]?.completionBy ?? "",
+          archived: false,
           ...patch,
         },
       };
@@ -81,6 +87,14 @@ export default function Pipeline() {
       localStorage.setItem(storageKey, JSON.stringify(next));
       return next;
     });
+  }
+
+  function archiveCustomer(id: string) {
+    updateCustomer(id, { archived: true });
+  }
+
+  function restoreCustomer(id: string) {
+    updateCustomer(id, { archived: false, isCustomer: true });
   }
 
   return (
@@ -103,7 +117,7 @@ export default function Pipeline() {
               <span className="text-sm text-text-secondary">Converted customers</span>
               <UserCheck size={16} className="text-accent-gold" />
             </div>
-            <div className="text-[32px] leading-none font-semibold mt-4">{customers.length}</div>
+            <div className="text-[32px] leading-none font-semibold mt-4">{activeCustomers.length}</div>
           </div>
           {counts.map((count) => (
             <div key={count.status} className="panel p-5">
@@ -146,6 +160,18 @@ export default function Pipeline() {
             ))}
           </select>
 
+          <button
+            onClick={() => setShowArchived((value) => !value)}
+            className={`flex h-12 items-center gap-2 rounded-card border px-4 text-sm transition-colors ${
+              showArchived
+                ? "border-accent-gold bg-accent-goldMuted text-accent-gold"
+                : "border-border bg-bg-secondary/80 text-text-secondary hover:bg-bg-panelHover hover:text-text-primary"
+            }`}
+          >
+            <Archive size={14} />
+            {showArchived ? "Showing archived" : `Archived (${archivedCustomers.length})`}
+          </button>
+
           <span className="text-xs text-text-muted ml-auto">{filtered.length} shown</span>
         </section>
 
@@ -171,7 +197,10 @@ export default function Pipeline() {
                   <tr key={id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
                     <td className="px-4 py-4">
                       <div className="font-medium">{customer.fullName || "Not Available yet"}</div>
-                      <div className="text-xs text-text-muted">{customer.businessName || customer.phone || "Not Available yet"}</div>
+                      <div className="text-xs text-text-muted">
+                        {customer.businessName || customer.phone || "Not Available yet"}
+                        {item.archived ? " · Archived" : ""}
+                      </div>
                     </td>
                     <td className="px-4 py-4 text-text-secondary">{customer.email || "Not Available yet"}</td>
                     <td className="px-4 py-4 text-text-secondary">{customer.offer || customer.product || "Not Available yet"}</td>
@@ -202,7 +231,7 @@ export default function Pipeline() {
                     </td>
                     <td className="px-4 py-4">
                       <span className={`badge ${isConvertedCustomer(customer) ? "bg-status-success/15 text-status-success" : "bg-status-info/15 text-status-info"}`}>
-                        {isConvertedCustomer(customer) ? `Paid${customer.paymentAmount ? ` · $${customer.paymentAmount}` : ""}` : "Manual customer"}
+                        {isConvertedCustomer(customer) ? `Paid${customer.paymentAmount ? ` · ${formatPaymentAmount(customer.paymentAmount)}` : ""}` : "Manual customer"}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -214,6 +243,23 @@ export default function Pipeline() {
                         >
                           <CheckCircle2 size={13} /> Complete
                         </button>
+                        {item.archived ? (
+                          <button
+                            onClick={() => restoreCustomer(id)}
+                            className="flex h-8 items-center gap-1.5 rounded-lg border border-status-info/30 bg-status-info/10 px-2.5 text-xs text-status-info transition hover:bg-status-info/15"
+                            title="Restore customer to active pipeline"
+                          >
+                            <Inbox size={13} /> Restore
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => archiveCustomer(id)}
+                            className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-panel px-2.5 text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-accent-gold"
+                            title="Archive customer"
+                          >
+                            <Archive size={13} /> Archive
+                          </button>
+                        )}
                         <button
                           onClick={() => removeCustomer(id)}
                           className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-panel px-2.5 text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-status-error disabled:cursor-not-allowed disabled:opacity-40"
@@ -252,7 +298,7 @@ function isPipelineCustomer(meta: PipelineMeta, lead: SheetLead) {
 }
 
 function pipelineFor(meta: PipelineMeta, customer: SheetLead) {
-  return meta[leadId(customer)] ?? { isCustomer: isConvertedCustomer(customer), status: "Queue" as const, completionBy: "" };
+  return meta[leadId(customer)] ?? { isCustomer: isConvertedCustomer(customer), archived: false, status: "Queue" as const, completionBy: "" };
 }
 
 function loadMeta(): PipelineMeta {
@@ -261,4 +307,10 @@ function loadMeta(): PipelineMeta {
   } catch {
     return {};
   }
+}
+
+function formatPaymentAmount(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("$") ? trimmed : `$${trimmed}`;
 }

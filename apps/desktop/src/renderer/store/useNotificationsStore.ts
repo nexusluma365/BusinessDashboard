@@ -22,6 +22,7 @@ export type CommandNotification = {
 type NotificationsState = {
   notifications: CommandNotification[];
   unreadCount: number;
+  addNotification: (notification: Omit<CommandNotification, "unread" | "handled"> & Partial<Pick<CommandNotification, "unread" | "handled">>) => void;
   markRead: (id: string) => void;
   markHandled: (id: string) => void;
   clearHandled: () => void;
@@ -35,6 +36,22 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   get unreadCount() {
     return get().notifications.filter((notification) => notification.unread && !notification.handled).length;
   },
+  addNotification: (notification) =>
+    set((state) => {
+      const existingIndex = state.notifications.findIndex((item) => item.id === notification.id);
+      const nextNotification: CommandNotification = {
+        ...notification,
+        unread: notification.unread ?? true,
+        handled: notification.handled ?? false,
+      };
+
+      const notifications =
+        existingIndex >= 0
+          ? state.notifications.map((item) => (item.id === notification.id ? { ...item, ...nextNotification } : item))
+          : [nextNotification, ...state.notifications].slice(0, 250);
+
+      return persist({ notifications });
+    }),
   markRead: (id) =>
     set((state) => persist({ notifications: state.notifications.map((item) => (item.id === id ? { ...item, unread: false } : item)) })),
   markHandled: (id) =>

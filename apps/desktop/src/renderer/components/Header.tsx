@@ -11,7 +11,7 @@ export default function Header({ title, subtitle }: { title: string; subtitle?: 
   });
 
   return (
-    <header className="flex items-center justify-between h-20 px-8 border-b border-border-subtle shrink-0 bg-bg-secondary/72 backdrop-blur-xl">
+    <header className="relative z-40 flex items-center justify-between h-20 px-8 border-b border-border-subtle shrink-0 bg-bg-secondary/72 backdrop-blur-xl">
       <div>
         <h1 className="text-xl font-semibold text-text-primary">{title}</h1>
         {subtitle && <p className="text-xs text-text-muted">{subtitle}</p>}

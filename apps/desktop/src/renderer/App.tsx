@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Routes, Route } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import SylusPanel from "@/components/SylusPanel";
+import LeadMonitor from "@/components/LeadMonitor";
 import LockScreen from "@/pages/LockScreen";
 import { useSecurityStore } from "@/store/useSecurityStore";
 import { useThemeStore } from "@/store/useThemeStore";
@@ -47,6 +48,7 @@ export default function App() {
           </Routes>
         </Suspense>
       </main>
+      <LeadMonitor />
       <SylusPanel />
     </div>
   );

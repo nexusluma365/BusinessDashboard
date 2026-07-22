@@ -46,7 +46,8 @@ export default function SylusPanel() {
   const voiceStatus = useQuery({
     queryKey: ["sylus-voice-status"],
     queryFn: () => window.nexusLuma.sylus.voiceStatus(),
-    enabled: open,
+    enabled: true,
+    staleTime: 300_000,
   });
   const speechSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
   const voiceReady = Boolean(voiceStatus.data?.publicKey && voiceStatus.data?.assistantId);
@@ -72,10 +73,8 @@ export default function SylusPanel() {
         setVoiceDetected(true);
         if (voicePulseTimer.current) window.clearTimeout(voicePulseTimer.current);
         voicePulseTimer.current = window.setTimeout(() => setVoiceDetected(false), 2400);
-        if (!open) {
-          toggle();
-        } else if (!vapiActive && voiceReady) {
-          void startVapiCall();
+        if (!vapiActive && voiceReady) {
+          void startVapiFromUserClick();
         }
       }
     };
@@ -100,7 +99,7 @@ export default function SylusPanel() {
       recognition.stop();
       if (voicePulseTimer.current) window.clearTimeout(voicePulseTimer.current);
     };
-  }, [alwaysListening, open, speechSupported, toggle, vapiActive, voiceReady]);
+  }, [alwaysListening, speechSupported, vapiActive, voiceReady]);
 
   useEffect(() => {
     return () => {
@@ -114,7 +113,7 @@ export default function SylusPanel() {
       startRequestedFromClick.current = true;
       if (voiceReady && vapiState === "idle") {
         startRequestedFromClick.current = false;
-        void startVapiCall();
+        void startVapiFromUserClick();
       }
     }
 
@@ -132,16 +131,22 @@ export default function SylusPanel() {
   }, [voiceReady, vapiState]);
 
   useEffect(() => {
+    if (startRequestedFromClick.current && voiceReady && vapiState === "idle") {
+      startRequestedFromClick.current = false;
+      void startVapiFromUserClick();
+    }
+  }, [voiceReady, vapiState]);
+
+  useEffect(() => {
     if (!open) {
       autoStartedForOpen.current = false;
-      stopVapiCall();
       return;
     }
 
     if (voiceReady && vapiState === "idle" && (startRequestedFromClick.current || !autoStartedForOpen.current)) {
       autoStartedForOpen.current = true;
       startRequestedFromClick.current = false;
-      void startVapiCall();
+      void startVapiFromUserClick();
     }
   }, [open, voiceReady, vapiState]);
 
