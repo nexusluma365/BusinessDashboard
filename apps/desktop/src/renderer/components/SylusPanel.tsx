@@ -35,6 +35,7 @@ export default function SylusPanel() {
   const [voiceError, setVoiceError] = useState("");
   const voicePulseTimer = useRef<number | null>(null);
   const autoStartedForOpen = useRef(false);
+  const startRequestedFromClick = useRef(false);
   const vapiRef = useRef<{ stop: () => void } | null>(null);
   const liveUpdates = useQuery({
     queryKey: ["sylus-live-updates"],
@@ -109,14 +110,37 @@ export default function SylusPanel() {
   }, []);
 
   useEffect(() => {
+    function handleStartRequest() {
+      startRequestedFromClick.current = true;
+      if (voiceReady && vapiState === "idle") {
+        startRequestedFromClick.current = false;
+        void startVapiCall();
+      }
+    }
+
+    function handleVoiceError(event: Event) {
+      const detail = event instanceof CustomEvent ? event.detail : "";
+      setVoiceError(String(detail || "Microphone permission was denied."));
+    }
+
+    window.addEventListener("syrus:start-voice-request", handleStartRequest);
+    window.addEventListener("syrus:voice-error", handleVoiceError);
+    return () => {
+      window.removeEventListener("syrus:start-voice-request", handleStartRequest);
+      window.removeEventListener("syrus:voice-error", handleVoiceError);
+    };
+  }, [voiceReady, vapiState]);
+
+  useEffect(() => {
     if (!open) {
       autoStartedForOpen.current = false;
       stopVapiCall();
       return;
     }
 
-    if (voiceReady && vapiState === "idle" && !autoStartedForOpen.current) {
+    if (voiceReady && vapiState === "idle" && (startRequestedFromClick.current || !autoStartedForOpen.current)) {
       autoStartedForOpen.current = true;
+      startRequestedFromClick.current = false;
       void startVapiCall();
     }
   }, [open, voiceReady, vapiState]);
@@ -136,6 +160,8 @@ export default function SylusPanel() {
   }
 
   async function startVapiCall() {
+    if (vapiRef.current && vapiState !== "idle") return;
+
     const publicKey = voiceStatus.data?.publicKey;
     const assistantId = voiceStatus.data?.assistantId;
 

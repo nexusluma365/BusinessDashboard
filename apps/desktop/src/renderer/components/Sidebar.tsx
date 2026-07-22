@@ -8,6 +8,28 @@ export default function Sidebar() {
   const toggleSylus = useSylusStore((s) => s.toggle);
   const sylusOpen = useSylusStore((s) => s.open);
 
+  async function handleSylusClick() {
+    if (!sylusOpen) {
+      toggleSylus();
+    }
+
+    window.dispatchEvent(new CustomEvent("syrus:start-voice-request"));
+
+    if (!navigator.mediaDevices?.getUserMedia) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      window.dispatchEvent(new CustomEvent("syrus:start-voice-request"));
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent("syrus:voice-error", {
+          detail: error instanceof Error ? error.message : "Microphone permission was denied.",
+        })
+      );
+    }
+  }
+
   return (
     <aside className="h-full w-[248px] shrink-0 bg-bg-secondary/88 border-r border-border-subtle flex flex-col px-5 py-6 backdrop-blur-xl">
       <div className="flex items-center gap-3 mb-9">
@@ -25,7 +47,7 @@ export default function Sidebar() {
           item.path === "/syrus" ? (
             <button
               key={item.path}
-              onClick={toggleSylus}
+              onClick={handleSylusClick}
               title={item.label}
               className={`group relative w-full h-12 flex items-center gap-3 rounded-card px-3 transition-all ${
                 sylusOpen ? "bg-accent-gold text-white shadow-glowGold" : "text-text-secondary hover:bg-bg-panelHover hover:text-text-primary"
