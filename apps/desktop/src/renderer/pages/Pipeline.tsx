@@ -7,7 +7,7 @@ import type { SheetLead } from "@/lib/bridge";
 import { leadId } from "@/lib/leadIdentity";
 
 type PipelineStatus = "Queue" | "Work In Process" | "Completed";
-type PipelineMeta = Record<string, { isCustomer?: boolean; status: PipelineStatus; completionBy: string }>;
+type PipelineMeta = Record<string, { isCustomer?: boolean; removed?: boolean; status: PipelineStatus; completionBy: string }>;
 
 const storageKey = "nexus-luma-customer-pipeline";
 const statuses: PipelineStatus[] = ["Queue", "Work In Process", "Completed"];
@@ -77,7 +77,7 @@ export default function Pipeline() {
   function removeCustomer(id: string) {
     setMeta((current) => {
       const next = { ...current };
-      next[id] = { ...(next[id] ?? { status: "Queue", completionBy: "" }), isCustomer: false };
+      next[id] = { ...(next[id] ?? { status: "Queue", completionBy: "" }), isCustomer: false, removed: true };
       localStorage.setItem(storageKey, JSON.stringify(next));
       return next;
     });
@@ -216,11 +216,10 @@ export default function Pipeline() {
                         </button>
                         <button
                           onClick={() => removeCustomer(id)}
-                          disabled={isConvertedCustomer(customer)}
                           className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-bg-panel px-2.5 text-xs text-text-secondary transition hover:bg-bg-panelHover hover:text-status-error disabled:cursor-not-allowed disabled:opacity-40"
-                          title={isConvertedCustomer(customer) ? "Paid customers stay in the pipeline automatically" : "Remove manual customer"}
+                          title="Delete from pipeline"
                         >
-                          <Trash2 size={13} /> Remove
+                          <Trash2 size={13} /> Delete
                         </button>
                       </div>
                     </td>
@@ -247,7 +246,9 @@ function isConvertedCustomer(lead: SheetLead) {
 }
 
 function isPipelineCustomer(meta: PipelineMeta, lead: SheetLead) {
-  return Boolean(meta[leadId(lead)]?.isCustomer || isConvertedCustomer(lead));
+  const item = meta[leadId(lead)];
+  if (item?.removed) return false;
+  return Boolean(item?.isCustomer || isConvertedCustomer(lead));
 }
 
 function pipelineFor(meta: PipelineMeta, customer: SheetLead) {

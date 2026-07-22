@@ -248,6 +248,24 @@ export default function SylusPanel() {
     }
   }
 
+  async function requestMicrophonePermission() {
+    if (!navigator.mediaDevices?.getUserMedia) return true;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      return true;
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Microphone permission was denied.");
+      return false;
+    }
+  }
+
+  async function startVapiFromUserClick() {
+    if (!(await requestMicrophonePermission())) return;
+    await startVapiCall();
+  }
+
   function stopVapiCall() {
     vapiRef.current?.stop();
     vapiRef.current = null;
@@ -260,7 +278,7 @@ export default function SylusPanel() {
       stopVapiCall();
       return;
     }
-    void startVapiCall();
+    void startVapiFromUserClick();
   }
 
   return (
