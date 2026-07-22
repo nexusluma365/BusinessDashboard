@@ -179,7 +179,12 @@ export default function SylusPanel() {
       setVoiceError("");
       setVapiState("connecting");
       const { default: Vapi } = await import("@vapi-ai/web");
-      const vapi = new Vapi(publicKey);
+      const vapi = new Vapi(
+        publicKey,
+        undefined,
+        { avoidEval: true, alwaysIncludeMicInPermissionPrompt: true },
+        { audioSource: true, startAudioOff: false }
+      );
       vapiRef.current = vapi;
 
       vapi.on("call-start", async () => {
@@ -231,8 +236,20 @@ export default function SylusPanel() {
       });
 
       vapi.on("error", (error: unknown) => {
-        const message = error instanceof Error ? error.message : "VAPI voice failed to start.";
+        const message = describeVapiError(error);
         setVoiceError(message);
+        setVoiceDetected(false);
+        setVapiState("idle");
+        vapiRef.current = null;
+      });
+
+      vapi.on("call-start-progress", (event: unknown) => {
+        const stage = typeof event === "object" && event && "stage" in event ? String((event as { stage?: string }).stage) : "";
+        if (stage) setVoiceError("");
+      });
+
+      vapi.on("call-start-failed", (event: unknown) => {
+        setVoiceError(describeVapiError(event));
         setVoiceDetected(false);
         setVapiState("idle");
         vapiRef.current = null;
@@ -246,7 +263,7 @@ export default function SylusPanel() {
         },
       });
     } catch (error) {
-      setVoiceError(error instanceof Error ? error.message : "VAPI voice failed to start.");
+      setVoiceError(describeVapiError(error));
       setVoiceDetected(false);
       setVapiState("idle");
       vapiRef.current = null;
@@ -487,6 +504,28 @@ function toneClass(tone: "info" | "success" | "warning" | "error") {
   if (tone === "warning") return "text-status-warning";
   if (tone === "error") return "text-status-error";
   return "text-status-info";
+}
+
+function describeVapiError(error: unknown) {
+  if (!error) return "VAPI voice failed to start.";
+  if (error instanceof Error) return error.message || "VAPI voice failed to start.";
+  if (typeof error === "string") return error;
+
+  try {
+    const record = error as Record<string, unknown>;
+    const nested = record.error as Record<string, unknown> | undefined;
+    return String(
+      record.message ||
+        record.error ||
+        record.errorMsg ||
+        record.errorDetail ||
+        nested?.message ||
+        nested?.error ||
+        JSON.stringify(error)
+    );
+  } catch {
+    return "VAPI voice failed to start.";
+  }
 }
 
 export function VoiceOrb({ active, compact = false }: { active: boolean; compact?: boolean }) {

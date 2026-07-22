@@ -455,7 +455,7 @@ export default function Leads() {
       localStorage.setItem(pipelineStorageKey, JSON.stringify(next));
       return next;
     });
-    navigate(`/pipeline?customerId=${id}`);
+    navigate(`/pipeline?customerId=${encodeURIComponent(id)}`);
   }
 }
 

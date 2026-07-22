@@ -28,6 +28,10 @@
     "mac": {
       "category": "public.app-category.business",
       "icon": "build/icon-source.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "SYRUS needs microphone access so you can talk to the VAPI voice assistant.",
+        "NSCameraUseContinuityCameraDeviceType": true
+      },
       "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }],
       "hardenedRuntime": false,
       "gatekeeperAssess": false

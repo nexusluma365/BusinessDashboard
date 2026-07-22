@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { Archive, CheckCircle2, Clock, Inbox, Search, Trash2, UserCheck } from "lucide-react";
 import Header from "@/components/Header";
 import type { SheetLead } from "@/lib/bridge";
-import { leadId } from "@/lib/leadIdentity";
+import { findLeadById, leadId } from "@/lib/leadIdentity";
 
 type PipelineStatus = "Queue" | "Work In Process" | "Completed";
 type PipelineMeta = Record<string, { isCustomer?: boolean; archived?: boolean; removed?: boolean; status: PipelineStatus; completionBy: string }>;
@@ -24,6 +24,10 @@ export default function Pipeline() {
     queryFn: () => window.nexusLuma.leads.list(),
   });
 
+  useEffect(() => {
+    setMeta(loadMeta());
+  }, [searchParams]);
+
   const customers = useMemo(() => {
     return (leadsQuery.data?.leads ?? []).filter((lead) => isPipelineCustomer(meta, lead));
   }, [leadsQuery.data?.leads, meta]);
@@ -31,8 +35,8 @@ export default function Pipeline() {
   useEffect(() => {
     const customerId = searchParams.get("customerId");
     if (customerId) {
-      const leadExists = (leadsQuery.data?.leads ?? []).some((lead) => leadId(lead) === customerId);
-      if (leadExists) updateCustomer(customerId, { isCustomer: true, status: "Queue" });
+      const lead = findLeadById(leadsQuery.data?.leads ?? [], customerId);
+      if (lead) updateCustomer(leadId(lead), { isCustomer: true, archived: false, removed: false, status: "Queue" });
       return;
     }
 

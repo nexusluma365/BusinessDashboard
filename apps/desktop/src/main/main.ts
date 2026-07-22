@@ -61,6 +61,8 @@ function createWindow() {
       "img-src 'self' data: https:; " +
       "connect-src 'self' http://127.0.0.1:5173 ws://127.0.0.1:5173 https: wss:; " +
       "media-src 'self' blob: data: https:; " +
+      "frame-src 'self' https:; " +
+      "child-src 'self' blob: https:; " +
       "worker-src 'self' blob:; " +
       "font-src 'self' data: https://fonts.gstatic.com;";
     const productionContentSecurityPolicy =
@@ -70,6 +72,8 @@ function createWindow() {
       "img-src 'self' data: https:; " +
       "connect-src 'self' https: wss:; " +
       "media-src 'self' blob: data: https:; " +
+      "frame-src 'self' https:; " +
+      "child-src 'self' blob: https:; " +
       "worker-src 'self' blob:; " +
       "font-src 'self' data: https://fonts.gstatic.com;";
 
@@ -86,6 +90,7 @@ function createWindow() {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === "media");
   });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === "media");
 
   if (USE_VITE_DEV_SERVER) {
     mainWindow.loadURL("http://127.0.0.1:5173");
